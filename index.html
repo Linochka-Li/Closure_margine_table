@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root{
     --bg:#FAF9FC;
@@ -369,23 +370,56 @@
         <div class="page-head">
           <div class="eyebrow">Шаг 1 из 4</div>
           <h1>Таблица маржинальности</h1>
-          <p>Загрузите текущий лист месяца (экспорт из Google Таблицы в .xlsx). Программа найдёт колонки подрядчиков и список проектов — это понадобится для сопоставления кампаний.</p>
+          <p>Подключите гугл-таблицу напрямую (тогда изменения можно будет записать обратно в неё одной кнопкой) — либо загрузите .xlsx-файл как раньше. Программа найдёт колонки подрядчиков и список проектов.</p>
         </div>
 
         <div class="card">
-          <h2>Файл таблицы</h2>
-          <p class="card-desc">Файл → Скачать → Microsoft Excel (.xlsx) из вашей гугл-таблицы, лист текущего месяца.</p>
-          <div class="dropzone" id="dzMargin">
-            <input type="file" id="fileMargin" accept=".xlsx,.xls">
-            <div class="dz-icon">📊</div>
-            <div class="dz-title">Перетащите файл сюда или нажмите, чтобы выбрать</div>
-            <div class="dz-sub">.xlsx до 25 МБ</div>
+          <div class="vendor-picker" style="margin-bottom:18px;">
+            <div class="vendor-chip is-selected" id="srcTabGoogle" data-src="google">🔗 Google Таблица</div>
+            <div class="vendor-chip" id="srcTabFile" data-src="file">📄 Файл .xlsx</div>
           </div>
-          <div id="marginFileChip"></div>
 
-          <div id="marginSheetPicker" class="hidden mt-14">
-            <label class="field-label">Лист месяца</label>
-            <select id="marginSheetSelect"></select>
+          <!-- ---------- ИСТОЧНИК: GOOGLE ТАБЛИЦА ---------- -->
+          <div id="srcGoogle">
+            <div id="googleAuthBlock">
+              <label class="field-label">OAuth Client ID (настраивается один раз для команды)</label>
+              <input type="text" id="googleClientId" placeholder="XXXXXXXXXXXX-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com">
+              <p class="card-desc mt-8">Получить в Google Cloud Console — инструкция в README. Client ID не секретный, его можно вписать в код сайта, чтобы коллеги не искали его сами.</p>
+              <button class="btn btn-primary mt-8" id="btnGoogleSignIn" disabled>Войти через Google</button>
+              <div id="googleAuthStatus" class="mt-8"></div>
+            </div>
+
+            <div id="googleSheetBlock" class="hidden mt-20">
+              <label class="field-label">Ссылка на гугл-таблицу</label>
+              <div style="display:flex; gap:8px;">
+                <input type="text" id="googleSheetUrl" placeholder="https://docs.google.com/spreadsheets/d/…/edit">
+                <button class="btn btn-ghost btn-sm" id="btnGoogleLoadSheet" style="white-space:nowrap;">Подключить</button>
+              </div>
+              <div id="googleSheetStatus" class="mt-8"></div>
+
+              <div id="googleTabPicker" class="hidden mt-14">
+                <label class="field-label">Лист месяца</label>
+                <select id="googleTabSelect"></select>
+              </div>
+            </div>
+          </div>
+
+          <!-- ---------- ИСТОЧНИК: ФАЙЛ ---------- -->
+          <div id="srcFile" class="hidden">
+            <h2>Файл таблицы</h2>
+            <p class="card-desc">Файл → Скачать → Microsoft Excel (.xlsx) из вашей гугл-таблицы, лист текущего месяца.</p>
+            <div class="dropzone" id="dzMargin">
+              <input type="file" id="fileMargin" accept=".xlsx,.xls">
+              <div class="dz-icon">📊</div>
+              <div class="dz-title">Перетащите файл сюда или нажмите, чтобы выбрать</div>
+              <div class="dz-sub">.xlsx до 25 МБ</div>
+            </div>
+            <div id="marginFileChip"></div>
+
+            <div id="marginSheetPicker" class="hidden mt-14">
+              <label class="field-label">Лист месяца</label>
+              <select id="marginSheetSelect"></select>
+            </div>
           </div>
 
           <div id="marginParseResult" class="hidden mt-20"></div>
@@ -507,8 +541,12 @@
               <h2>Все изменения (<span id="changeCount">0</span>)</h2>
               <p class="card-desc">Строка / колонка — точный адрес ячейки в загруженной таблице маржинальности.</p>
             </div>
-            <button class="btn btn-primary btn-sm" id="btnDownloadXlsx">⭳ Скачать .xlsx</button>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-ghost btn-sm" id="btnDownloadXlsx">⭳ Скачать .xlsx</button>
+              <button class="btn btn-primary btn-sm hidden" id="btnWriteGoogle">↥ Записать в Google Таблицу</button>
+            </div>
           </div>
+          <div id="writeGoogleStatus"></div>
           <div id="changesTableWrap" style="max-height:420px; overflow:auto; border:1px solid var(--line); border-radius:10px;"></div>
         </div>
 
@@ -628,7 +666,7 @@ function splitMainDspByOrder(rows, priceIdx, amountIdx){
     for (let i=1;i<rows.length;i++){
       const prev=Number(rows[i-1][col]), cur=Number(rows[i][col]);
       if (Number.isNaN(prev)||Number.isNaN(cur)) continue;
-      if (prev>0 && cur>prev*1.0001){ jumpIdx=i; break; }
+      if (prev>0 && cur>prev*3){ jumpIdx=i; break; }
     }
   }
   const cands = [fracIdx,jumpIdx].filter(x=>x!==null);
@@ -769,48 +807,6 @@ function guessMonthSheet(sheetNames){
   return bestScore > 0 ? best : null;
 }
 
-let marginFile = null;
-
-setupDropzone('dzMargin','fileMargin', async (file)=>{
-  marginFile = file;
-  $('marginFileChip').innerHTML = fileChipHtml(file.name, ()=>{ marginFile=null; $('marginFileChip').innerHTML=''; $('marginSheetPicker').classList.add('hidden'); $('marginParseResult').classList.add('hidden'); $('btnToStep2').disabled=true; });
-  try{
-    const wb = await readWorkbook(file);
-    const sel = $('marginSheetSelect');
-    sel.innerHTML = wb.SheetNames.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
-    const guessed = guessMonthSheet(wb.SheetNames);
-    if (guessed) sel.value = guessed;
-    $('marginSheetPicker').classList.remove('hidden');
-    window.__marginWb = wb;
-    parseMarginSheet();
-  }catch(err){
-    toast('Не удалось прочитать файл: '+err.message);
-  }
-});
-$('marginSheetSelect').addEventListener('change', ()=>{
-  const hasWork = STATE.changes.length > 0 || STATE.unresolved.length > 0;
-  if (hasWork && STATE.margin && STATE.margin.sheetName !== $('marginSheetSelect').value){
-    const ok = confirm(
-      `Вы уже обработали данные для листа «${STATE.margin.sheetName}» ` +
-      `(подтверждено: ${STATE.changes.length}, в очереди: ${STATE.unresolved.length}).\n\n` +
-      `Номера строк для этих данных относятся именно к этому листу — при переключении на другой месяц ` +
-      `они станут неверными. Продолжить и очистить текущий прогресс?`
-    );
-    if (!ok){
-      $('marginSheetSelect').value = STATE.margin.sheetName;
-      return;
-    }
-    STATE.changes = [];
-    STATE.unresolved = [];
-    STATE.excludedLog = [];
-    toast('Прогресс очищен — переключились на другой лист месяца.');
-  }
-  parseMarginSheet();
-});
-['cfgHeaderRow','cfgProjectCol','cfgFirstBlockCol','cfgFirstDataRow'].forEach(id=>{
-  $(id).addEventListener('change', parseMarginSheet);
-});
-
 function fileChipHtml(name, onRemove){
   const id = 'rm_'+Math.random().toString(36).slice(2);
   setTimeout(()=>{ const btn=$(id); if(btn) btn.addEventListener('click', onRemove); },0);
@@ -818,22 +814,17 @@ function fileChipHtml(name, onRemove){
   return `<div class="file-chip"><div class="fc-icon">${escapeHtml(ext)}</div><div class="fc-name">${escapeHtml(name)}</div><div class="fc-remove" id="${id}">✕</div></div>`;
 }
 
-function parseMarginSheet(){
-  const wb = window.__marginWb;
-  if (!wb) return;
-  const sheetName = $('marginSheetSelect').value;
-  const ws = wb.Sheets[sheetName];
-  const aoa = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
-
+/* ---------- Общий разбор листа (источник - AoA, неважно откуда: xlsx или Google API) ---------- */
+function applyMarginAoa(aoa, sheetName, sourceMeta){
   const headerRowIdx = Number($('cfgHeaderRow').value) - 1;
   const projectColIdx = colLetterToIdx($('cfgProjectCol').value);
   const firstBlockColIdx = colLetterToIdx($('cfgFirstBlockCol').value);
   const firstDataRowIdx = Number($('cfgFirstDataRow').value) - 1;
 
   const headerRow = aoa[headerRowIdx] || [];
-  const contractorMap = {}; // name -> {unitCol, qtyCol, amountCol} (1-indexed, sheet columns)
+  const contractorMap = {};
   let c = firstBlockColIdx;
-  const lastCol = Math.max(...aoa.map(r=>r?r.length:0));
+  const lastCol = Math.max(0, ...aoa.map(r=>r?r.length:0));
   while (c < lastCol){
     const name = headerRow[c];
     if (name !== null && name !== undefined && String(name).trim() !== ''){
@@ -842,7 +833,7 @@ function parseMarginSheet(){
     } else { c += 1; }
   }
 
-  const projectIndex = {}; // name -> row number (1-indexed sheet row)
+  const projectIndex = {};
   let lastDataRow = firstDataRowIdx;
   for (let r = firstDataRowIdx; r < aoa.length; r++){
     const v = aoa[r] ? aoa[r][projectColIdx] : null;
@@ -852,7 +843,7 @@ function parseMarginSheet(){
     }
   }
 
-  STATE.margin = {aoa, sheetName, contractorMap, projectIndex, lastDataRow, projectColIdx};
+  STATE.margin = Object.assign({aoa, sheetName, contractorMap, projectIndex, lastDataRow, projectColIdx}, sourceMeta||{});
 
   $('railMonthChip').classList.remove('hidden');
   $('railMonthName').textContent = sheetName;
@@ -875,7 +866,7 @@ function parseMarginSheet(){
       <div class="summary-tile">
         <div class="st-label">Лист</div>
         <div class="st-value" style="font-size:15px;">${escapeHtml(sheetName)}</div>
-        <div class="st-sub">выбран для записи</div>
+        <div class="st-sub">${sourceMeta&&sourceMeta.isGoogleSource ? 'подключён напрямую' : 'выбран для записи'}</div>
       </div>
     </div>`;
   $('btnToStep2').disabled = contractorCount===0 || projectCount===0;
@@ -884,12 +875,202 @@ function parseMarginSheet(){
   }
 }
 
+function confirmSheetSwitch(newSheetName){
+  const hasWork = STATE.changes.length > 0 || STATE.unresolved.length > 0;
+  if (hasWork && STATE.margin && STATE.margin.sheetName !== newSheetName){
+    const ok = confirm(
+      `Вы уже обработали данные для листа «${STATE.margin.sheetName}» ` +
+      `(подтверждено: ${STATE.changes.length}, в очереди: ${STATE.unresolved.length}).\n\n` +
+      `Номера строк для этих данных относятся именно к этому листу — при переключении на другой месяц ` +
+      `они станут неверными. Продолжить и очистить текущий прогресс?`
+    );
+    if (ok){
+      STATE.changes = []; STATE.unresolved = []; STATE.excludedLog = [];
+      toast('Прогресс очищен — переключились на другой лист месяца.');
+    }
+    return ok;
+  }
+  return true;
+}
+
+/* ---------- Источник: ФАЙЛ ---------- */
+let marginFile = null;
+
+setupDropzone('dzMargin','fileMargin', async (file)=>{
+  marginFile = file;
+  $('marginFileChip').innerHTML = fileChipHtml(file.name, ()=>{ marginFile=null; $('marginFileChip').innerHTML=''; $('marginSheetPicker').classList.add('hidden'); $('marginParseResult').classList.add('hidden'); $('btnToStep2').disabled=true; });
+  try{
+    const wb = await readWorkbook(file);
+    const sel = $('marginSheetSelect');
+    sel.innerHTML = wb.SheetNames.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    const guessed = guessMonthSheet(wb.SheetNames);
+    if (guessed) sel.value = guessed;
+    $('marginSheetPicker').classList.remove('hidden');
+    window.__marginWb = wb;
+    parseMarginSheetFromFile();
+  }catch(err){
+    toast('Не удалось прочитать файл: '+err.message);
+  }
+});
+$('marginSheetSelect').addEventListener('change', ()=>{
+  if (!confirmSheetSwitch($('marginSheetSelect').value)){
+    $('marginSheetSelect').value = STATE.margin.sheetName;
+    return;
+  }
+  parseMarginSheetFromFile();
+});
+['cfgHeaderRow','cfgProjectCol','cfgFirstBlockCol','cfgFirstDataRow'].forEach(id=>{
+  $(id).addEventListener('change', ()=>{
+    if (STATE.marginSource === 'google' && STATE.google && STATE.google.spreadsheetId){
+      loadGoogleSheetValues();
+    } else if (window.__marginWb){
+      parseMarginSheetFromFile();
+    }
+  });
+});
+
+function parseMarginSheetFromFile(){
+  const wb = window.__marginWb;
+  if (!wb) return;
+  const sheetName = $('marginSheetSelect').value;
+  const ws = wb.Sheets[sheetName];
+  const aoa = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
+  applyMarginAoa(aoa, sheetName, {isGoogleSource:false});
+}
+
 $('marginSettingsToggle').addEventListener('click', ()=>{
   $('marginSettingsBody').classList.toggle('is-open');
   $('marginSettingsChev').classList.toggle('is-open');
 });
 $('btnToStep2').addEventListener('click', ()=> goToStep(2));
 $('btnBackTo1').addEventListener('click', ()=> goToStep(1));
+
+/* ---------- Переключатель источника (Google / Файл) ---------- */
+$('srcTabGoogle').addEventListener('click', ()=>{
+  $('srcTabGoogle').classList.add('is-selected'); $('srcTabFile').classList.remove('is-selected');
+  $('srcGoogle').classList.remove('hidden'); $('srcFile').classList.add('hidden');
+  STATE.marginSource = 'google';
+});
+$('srcTabFile').addEventListener('click', ()=>{
+  $('srcTabFile').classList.add('is-selected'); $('srcTabGoogle').classList.remove('is-selected');
+  $('srcFile').classList.remove('hidden'); $('srcGoogle').classList.add('hidden');
+  STATE.marginSource = 'file';
+});
+STATE.marginSource = 'google';
+
+/* ---------- Источник: GOOGLE ТАБЛИЦА ---------- */
+STATE.google = { clientId:null, accessToken:null, tokenExpiresAt:0, spreadsheetId:null, tokenClient:null };
+
+function extractSpreadsheetId(url){
+  const m = String(url).match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : (/^[a-zA-Z0-9-_]{20,}$/.test(url.trim()) ? url.trim() : null);
+}
+
+$('googleClientId').addEventListener('input', ()=>{
+  $('btnGoogleSignIn').disabled = !$('googleClientId').value.trim();
+});
+
+$('btnGoogleSignIn').addEventListener('click', ()=>{
+  const clientId = $('googleClientId').value.trim();
+  if (!clientId) return;
+  STATE.google.clientId = clientId;
+
+  if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2){
+    toast('Библиотека Google ещё загружается — подождите секунду и попробуйте снова.');
+    return;
+  }
+
+  STATE.google.tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: 'https://www.googleapis.com/auth/spreadsheets',
+    callback: (resp)=>{
+      if (resp.error){
+        $('googleAuthStatus').innerHTML = `<span class="badge badge-red">Ошибка входа: ${escapeHtml(resp.error)}</span>`;
+        return;
+      }
+      STATE.google.accessToken = resp.access_token;
+      STATE.google.tokenExpiresAt = Date.now() + (Number(resp.expires_in)||3300)*1000;
+      $('googleAuthStatus').innerHTML = `<span class="badge badge-green">Подключено к Google</span>`;
+      $('googleSheetBlock').classList.remove('hidden');
+    },
+  });
+  STATE.google.tokenClient.requestAccessToken({prompt: STATE.google.accessToken ? '' : 'consent'});
+});
+
+function ensureGoogleToken(){
+  return new Promise((resolve, reject)=>{
+    if (STATE.google.accessToken && Date.now() < STATE.google.tokenExpiresAt - 30000){
+      resolve(STATE.google.accessToken); return;
+    }
+    if (!STATE.google.tokenClient){ reject(new Error('Сначала войдите через Google')); return; }
+    STATE.google.tokenClient.callback = (resp)=>{
+      if (resp.error){ reject(new Error(resp.error)); return; }
+      STATE.google.accessToken = resp.access_token;
+      STATE.google.tokenExpiresAt = Date.now() + (Number(resp.expires_in)||3300)*1000;
+      resolve(STATE.google.accessToken);
+    };
+    STATE.google.tokenClient.requestAccessToken({prompt:''});
+  });
+}
+
+async function googleApiFetch(url, opts){
+  const token = await ensureGoogleToken();
+  const res = await fetch(url, Object.assign({}, opts, {
+    headers: Object.assign({Authorization:'Bearer '+token}, (opts&&opts.headers)||{}),
+  }));
+  if (!res.ok){
+    const body = await res.text();
+    throw new Error(`Google Sheets API: ${res.status} ${body.slice(0,200)}`);
+  }
+  return res.json();
+}
+
+$('btnGoogleLoadSheet').addEventListener('click', async ()=>{
+  const url = $('googleSheetUrl').value.trim();
+  const id = extractSpreadsheetId(url);
+  if (!id){ toast('Не удалось распознать ссылку на таблицу.'); return; }
+  STATE.google.spreadsheetId = id;
+  $('googleSheetStatus').innerHTML = `<span class="badge badge-violet">Подключаемся…</span>`;
+  try{
+    const meta = await googleApiFetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=properties.title,sheets.properties(title)`);
+    const sheetNames = meta.sheets.map(s=>s.properties.title);
+    $('googleSheetStatus').innerHTML = `<span class="badge badge-green">${escapeHtml(meta.properties.title)}</span>`;
+    const sel = $('googleTabSelect');
+    sel.innerHTML = sheetNames.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    const guessed = guessMonthSheet(sheetNames);
+    if (guessed) sel.value = guessed;
+    $('googleTabPicker').classList.remove('hidden');
+    await loadGoogleSheetValues();
+  }catch(err){
+    $('googleSheetStatus').innerHTML = `<span class="badge badge-red">Не удалось подключиться</span>`;
+    toast(err.message);
+  }
+});
+
+$('googleTabSelect').addEventListener('change', async ()=>{
+  if (!confirmSheetSwitch($('googleTabSelect').value)){
+    $('googleTabSelect').value = STATE.margin.sheetName;
+    return;
+  }
+  await loadGoogleSheetValues();
+});
+
+async function loadGoogleSheetValues(){
+  const id = STATE.google.spreadsheetId;
+  const sheetName = $('googleTabSelect').value;
+  if (!id || !sheetName) return;
+  try{
+    const range = `'${sheetName.replace(/'/g,"''")}'`;
+    const data = await googleApiFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(range)}?valueRenderOption=UNFORMATTED_VALUE`
+    );
+    const aoa = data.values || [];
+    applyMarginAoa(aoa, sheetName, {isGoogleSource:true, spreadsheetId:id});
+    toast('Данные листа загружены из Google Таблицы');
+  }catch(err){
+    toast('Не удалось загрузить лист: '+err.message);
+  }
+}
 
 /* ============================================================================
    ШАГ 2 — ЗАГРУЗКА СВЕРКИ
@@ -1361,6 +1542,9 @@ function renderSummary(){
   $('summaryByVendor').innerHTML = tiles ? `<div class="summary-grid">${tiles}</div>` : `<div class="empty-note">Пока нет подтверждённых изменений.</div>`;
 
   $('changeCount').textContent = STATE.changes.length;
+  $('btnWriteGoogle').classList.toggle('hidden', !(STATE.margin && STATE.margin.isGoogleSource));
+  $('btnWriteGoogle').disabled = STATE.changes.length===0;
+  $('writeGoogleStatus').innerHTML = '';
   if (!STATE.changes.length){
     $('changesTableWrap').innerHTML = `<div class="empty-note">Нет строк для выгрузки.</div>`;
     return;
@@ -1398,6 +1582,40 @@ $('btnDownloadXlsx').addEventListener('click', ()=>{
   const ts = new Date().toISOString().slice(0,10);
   XLSX.writeFile(wb, `Сверка_изменения_${ts}.xlsx`);
   toast('Файл скачан');
+});
+
+$('btnWriteGoogle').addEventListener('click', async ()=>{
+  if (!STATE.changes.length || !STATE.margin || !STATE.margin.isGoogleSource) return;
+  const btn = $('btnWriteGoogle');
+  btn.disabled = true; btn.textContent = 'Записываем…';
+  $('writeGoogleStatus').innerHTML = `<span class="badge badge-violet">Отправляем ${STATE.changes.length} строк в Google Таблицу…</span>`;
+  try{
+    const sheetName = STATE.margin.sheetName.replace(/'/g,"''");
+    const data = [];
+    STATE.changes.forEach(c=>{
+      const qty = Math.round((c.imp/1000)*1000)/1000;
+      const amt = Math.round(c.amount*100)/100;
+      const qtyA1 = `'${sheetName}'!${colLetter(c.qtyCol)}${c.row}`;
+      const amtA1 = `'${sheetName}'!${colLetter(c.amountCol)}${c.row}`;
+      const unitA1 = `'${sheetName}'!${colLetter(c.unitCol)}${c.row}`;
+      data.push({range: qtyA1, values:[[qty]]});
+      data.push({range: amtA1, values:[[amt]]});
+      // цена за единицу пишется ЖИВОЙ ФОРМУЛОЙ (=Сумма/Показы), а не числом -
+      // защищена IFERROR, чтобы никогда не показывать ошибку при показах=0
+      data.push({range: unitA1, values:[[`=IFERROR(${colLetter(c.amountCol)}${c.row}/${colLetter(c.qtyCol)}${c.row},0)`]]});
+    });
+    await googleApiFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${STATE.margin.spreadsheetId}/values:batchUpdate`,
+      {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({valueInputOption:'USER_ENTERED', data})}
+    );
+    $('writeGoogleStatus').innerHTML = `<span class="badge badge-green">Записано ${STATE.changes.length} строк в «${escapeHtml(STATE.margin.sheetName)}»</span>`;
+    toast('Готово — данные записаны в Google Таблицу');
+  }catch(err){
+    $('writeGoogleStatus').innerHTML = `<span class="badge badge-red">Не удалось записать</span>`;
+    toast('Ошибка записи: '+err.message);
+  }finally{
+    btn.disabled = false; btn.textContent = '↥ Записать в Google Таблицу';
+  }
 });
 
 /* ============================================================================
