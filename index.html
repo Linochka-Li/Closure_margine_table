@@ -495,8 +495,18 @@
 
           <div class="toggle-row">
             <div>
-              <div class="tr-label">Формула цены за единицу — русская локаль</div>
-              <div class="tr-desc">В русской локали Google Таблиц аргументы формулы разделяются точкой с запятой (;), в английской — запятой (,). Если после записи в ячейке «цена за единицу» видите #ERROR! — переключите.</div>
+              <div class="tr-label">Писать цену за единицу формулой</div>
+              <div class="tr-desc">По умолчанию сайт пишет готовое посчитанное число — надёжно при любой локали таблицы. Формула (=Сумма/Показы) будет пересчитываться сама при ручном изменении показов/суммы, но её синтаксис зависит от локали таблицы (запятая/точка с запятой) и может дать #ERROR!, если локаль угадана неверно.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggleUnitFormula">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="toggle-row hidden" id="rowRuLocale">
+            <div>
+              <div class="tr-label">Формула — русская локаль (точка с запятой)</div>
+              <div class="tr-desc">Выключите, если таблица в английской локали и после записи видите #ERROR! в ячейке цены за единицу.</div>
             </div>
             <label class="switch">
               <input type="checkbox" id="toggleRuLocale" checked>
@@ -718,7 +728,8 @@ const STATE = {
     AMBIGUOUS_MARGIN: 0.08,
     MIN_CANDIDATE_SCORE: 0.25,
     EXCLUDE_DSP_TAIL_WITHOUT_CAMPAIGN: true,
-    FORMULA_ARG_SEPARATOR: ';', // ';' для русской/европейской локали таблицы, ',' для английской
+    FORMULA_ARG_SEPARATOR: ';', // используется только если WRITE_UNIT_AS_FORMULA=true
+    WRITE_UNIT_AS_FORMULA: false, // по умолчанию - готовое число, без риска locale-ошибок формулы
     SSP_TO_DSP_COLUMN: {
       "Between Exchange":"Between Exchange DSP","Solta":"Solta DSP","Ohmybid":"Ohmybid DSP",
       "Ohmybid_CTV":"Ohmybid DSP","Adlook_Inread":"Adlook DSP","sape.ru":"Sape DSP",
@@ -1180,6 +1191,10 @@ $('btnBackTo2From4').addEventListener('click', ()=>{ resetReconFile(); goToStep(
 $('toggleExcludeDsp').addEventListener('change', e=>{
   STATE.settings.EXCLUDE_DSP_TAIL_WITHOUT_CAMPAIGN = e.target.checked;
 });
+$('toggleUnitFormula').addEventListener('change', e=>{
+  STATE.settings.WRITE_UNIT_AS_FORMULA = e.target.checked;
+  $('rowRuLocale').classList.toggle('hidden', !e.target.checked);
+});
 $('toggleRuLocale').addEventListener('change', e=>{
   STATE.settings.FORMULA_ARG_SEPARATOR = e.target.checked ? ';' : ',';
 });
@@ -1606,15 +1621,16 @@ $('btnWriteGoogle').addEventListener('click', async ()=>{
   $('writeGoogleStatus').innerHTML = `<span class="badge badge-violet">Отправляем ${STATE.changes.length} строк в Google Таблицу…</span>`;
   try{
     const sheetName = STATE.margin.sheetName.replace(/'/g,"''");
-    const numericData = [];   // показы и сумма - ВСЕГДА как чистые числа (RAW)
-    const formulaData = [];   // цена за единицу - формула (нужен USER_ENTERED, чтобы вычислялась)
+    const numericData = [];   // показы, сумма и (по умолчанию) цена за ед. - чистые числа (RAW)
+    const formulaData = [];   // цена за ед. формулой - только если явно включено в настройках
 
-    // ВАЖНО: числа и формулы пишутся ДВУМЯ отдельными запросами с разным
-    // valueInputOption. У Sheets API он один на весь batchUpdate, и если
-    // писать числа через USER_ENTERED, они интерпретируются по локали
-    // таблицы (например, в русской локали точка - не десятичный разделитель)
-    // и могут осесть как ТЕКСТ, а не число - тогда формула деления в самой
-    // таблице маржинальности ломается. RAW исключает эту двусмысленность.
+    // ВАЖНО: показы/сумма ВСЕГДА пишутся как чистые числа через RAW - без
+    // этого Sheets может интерпретировать число по локали таблицы и записать
+    // как текст, ломая любые формулы, которые на него ссылаются.
+    // Цена за единицу по умолчанию ТОЖЕ пишется готовым числом (тем же RAW-
+    // запросом) - формула отключена по умолчанию, т.к. синтаксис разделителя
+    // аргументов (, или ;) зависит от локали конкретной таблицы и его нельзя
+    // надёжно угадать без риска сломать формулу (#ERROR!).
     STATE.changes.forEach(c=>{
       const qty = Math.round((c.imp/1000)*1000)/1000;
       const amt = Math.round(c.amount*100)/100;
@@ -1623,24 +1639,25 @@ $('btnWriteGoogle').addEventListener('click', async ()=>{
       const unitA1 = `'${sheetName}'!${colLetter(c.unitCol)}${c.row}`;
       numericData.push({range: qtyA1, values:[[qty]]});
       numericData.push({range: amtA1, values:[[amt]]});
-      // Разделитель аргументов внутри формулы зависит от ЛОКАЛИ таблицы:
-      // в русской (и большинстве европейских) - точка с запятой, а не запятая.
-      // USER_ENTERED парсит формулу так же, как если бы её ввели в интерфейсе,
-      // поэтому запятая в русской локали даёт синтаксическую ошибку (#ERROR!,
-      // которую IFERROR поймать не может - он ловит ошибки ВЫЧИСЛЕНИЯ, а не
-      // ошибки разбора самой формулы).
-      const sep = STATE.settings.FORMULA_ARG_SEPARATOR || ';';
-      formulaData.push({range: unitA1, values:[[`=IFERROR(${colLetter(c.amountCol)}${c.row}/${colLetter(c.qtyCol)}${c.row}${sep}0)`]]});
+      if (STATE.settings.WRITE_UNIT_AS_FORMULA){
+        const sep = STATE.settings.FORMULA_ARG_SEPARATOR || ';';
+        formulaData.push({range: unitA1, values:[[`=IFERROR(${colLetter(c.amountCol)}${c.row}/${colLetter(c.qtyCol)}${c.row}${sep}0)`]]});
+      } else {
+        const unit = qty > 0 ? Math.round((amt/qty)*100)/100 : 0;
+        numericData.push({range: unitA1, values:[[unit]]});
+      }
     });
 
     await googleApiFetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${STATE.margin.spreadsheetId}/values:batchUpdate`,
       {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({valueInputOption:'RAW', data:numericData})}
     );
-    await googleApiFetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${STATE.margin.spreadsheetId}/values:batchUpdate`,
-      {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({valueInputOption:'USER_ENTERED', data:formulaData})}
-    );
+    if (formulaData.length){
+      await googleApiFetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${STATE.margin.spreadsheetId}/values:batchUpdate`,
+        {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({valueInputOption:'USER_ENTERED', data:formulaData})}
+      );
+    }
     $('writeGoogleStatus').innerHTML = `<span class="badge badge-green">Записано ${STATE.changes.length} строк в «${escapeHtml(STATE.margin.sheetName)}»</span>`;
     toast('Готово — данные записаны в Google Таблицу');
   }catch(err){
