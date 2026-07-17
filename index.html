@@ -492,6 +492,17 @@
               <span class="slider"></span>
             </label>
           </div>
+
+          <div class="toggle-row">
+            <div>
+              <div class="tr-label">Формула цены за единицу — русская локаль</div>
+              <div class="tr-desc">В русской локали Google Таблиц аргументы формулы разделяются точкой с запятой (;), в английской — запятой (,). Если после записи в ячейке «цена за единицу» видите #ERROR! — переключите.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggleRuLocale" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
 
         <div class="flex-between">
@@ -707,6 +718,7 @@ const STATE = {
     AMBIGUOUS_MARGIN: 0.08,
     MIN_CANDIDATE_SCORE: 0.25,
     EXCLUDE_DSP_TAIL_WITHOUT_CAMPAIGN: true,
+    FORMULA_ARG_SEPARATOR: ';', // ';' для русской/европейской локали таблицы, ',' для английской
     SSP_TO_DSP_COLUMN: {
       "Between Exchange":"Between Exchange DSP","Solta":"Solta DSP","Ohmybid":"Ohmybid DSP",
       "Ohmybid_CTV":"Ohmybid DSP","Adlook_Inread":"Adlook DSP","sape.ru":"Sape DSP",
@@ -1168,6 +1180,9 @@ $('btnBackTo2From4').addEventListener('click', ()=>{ resetReconFile(); goToStep(
 $('toggleExcludeDsp').addEventListener('change', e=>{
   STATE.settings.EXCLUDE_DSP_TAIL_WITHOUT_CAMPAIGN = e.target.checked;
 });
+$('toggleRuLocale').addEventListener('change', e=>{
+  STATE.settings.FORMULA_ARG_SEPARATOR = e.target.checked ? ';' : ',';
+});
 
 /* ============================================================================
    ОБРАБОТКА ФАЙЛА СВЕРКИ
@@ -1608,7 +1623,14 @@ $('btnWriteGoogle').addEventListener('click', async ()=>{
       const unitA1 = `'${sheetName}'!${colLetter(c.unitCol)}${c.row}`;
       numericData.push({range: qtyA1, values:[[qty]]});
       numericData.push({range: amtA1, values:[[amt]]});
-      formulaData.push({range: unitA1, values:[[`=IFERROR(${colLetter(c.amountCol)}${c.row}/${colLetter(c.qtyCol)}${c.row},0)`]]});
+      // Разделитель аргументов внутри формулы зависит от ЛОКАЛИ таблицы:
+      // в русской (и большинстве европейских) - точка с запятой, а не запятая.
+      // USER_ENTERED парсит формулу так же, как если бы её ввели в интерфейсе,
+      // поэтому запятая в русской локали даёт синтаксическую ошибку (#ERROR!,
+      // которую IFERROR поймать не может - он ловит ошибки ВЫЧИСЛЕНИЯ, а не
+      // ошибки разбора самой формулы).
+      const sep = STATE.settings.FORMULA_ARG_SEPARATOR || ';';
+      formulaData.push({range: unitA1, values:[[`=IFERROR(${colLetter(c.amountCol)}${c.row}/${colLetter(c.qtyCol)}${c.row}${sep}0)`]]});
     });
 
     await googleApiFetch(
