@@ -1,0 +1,1435 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Сверка · Автоматизация закрытия подрядчиков</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#FAF9FC;
+    --surface:#FFFFFF;
+    --ink:#241832;
+    --ink-soft:#6B5B7B;
+    --ink-faint:#9C8FAE;
+    --violet-950:#1E1033;
+    --violet-900:#2E1065;
+    --violet-700:#5B21B6;
+    --violet-600:#7C3AED;
+    --violet-500:#8B5CF6;
+    --violet-400:#A78BFA;
+    --violet-100:#EDE9FE;
+    --violet-50:#F5F3FF;
+    --line:#E4DEF0;
+    --line-soft:#EFEAF7;
+    --amber:#B45309;
+    --amber-bg:#FEF3E2;
+    --amber-line:#F3D9AE;
+    --green:#1F7A5C;
+    --green-bg:#E9F6F0;
+    --green-line:#BFE3D2;
+    --red:#B0403F;
+    --red-bg:#FBEEEE;
+    --red-line:#EFCECD;
+    --radius:14px;
+    --radius-sm:9px;
+    --shadow:0 1px 2px rgba(46,16,101,.06), 0 8px 24px -12px rgba(46,16,101,.18);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Manrope',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  h1,h2,h3,.display{font-family:'Space Grotesk',system-ui,sans-serif;}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+  a{color:var(--violet-600);}
+  ::selection{background:var(--violet-100); color:var(--violet-900);}
+
+  .app{display:flex; min-height:100vh;}
+
+  /* ---------- Левая панель ---------- */
+  .rail{
+    width:272px; flex:0 0 272px;
+    background:linear-gradient(180deg, var(--violet-950), var(--violet-900) 60%);
+    color:#fff;
+    padding:28px 22px;
+    display:flex; flex-direction:column;
+    position:sticky; top:0; height:100vh;
+  }
+  .rail-brand{display:flex; align-items:center; gap:10px; margin-bottom:34px;}
+  .rail-brand .mark{
+    width:34px; height:34px; border-radius:10px;
+    background:linear-gradient(135deg, var(--violet-400), var(--violet-600));
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Space Grotesk'; font-weight:700; font-size:16px; color:#fff;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.25);
+  }
+  .rail-brand .name{font-family:'Space Grotesk'; font-weight:600; font-size:16px; line-height:1.15;}
+  .rail-brand .sub{font-size:11px; color:var(--violet-400); font-weight:500;}
+
+  .rail-steps{list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:2px; flex:1;}
+  .rail-step{
+    display:flex; align-items:flex-start; gap:12px;
+    padding:11px 10px; border-radius:10px; cursor:default;
+    opacity:.45; transition:opacity .2s;
+  }
+  .rail-step.is-reachable{cursor:pointer; opacity:.72;}
+  .rail-step.is-reachable:hover{background:rgba(255,255,255,.06); opacity:.92;}
+  .rail-step.is-active{opacity:1; background:rgba(255,255,255,.08);}
+  .rail-step .num{
+    width:22px; height:22px; border-radius:50%; flex:0 0 22px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-family:'IBM Plex Mono'; font-weight:600;
+    border:1.5px solid rgba(255,255,255,.35);
+    margin-top:1px;
+  }
+  .rail-step.is-active .num{background:var(--violet-400); border-color:var(--violet-400); color:var(--violet-950);}
+  .rail-step.is-done .num{background:rgba(255,255,255,.16); border-color:transparent;}
+  .rail-step .label{font-size:13.5px; font-weight:600; line-height:1.3;}
+  .rail-step .hint{font-size:11.5px; color:var(--violet-400); margin-top:2px; line-height:1.35;}
+
+  .rail-cache{
+    margin-top:16px; padding:13px 14px; border-radius:12px;
+    background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08);
+    font-size:11.5px; color:var(--violet-400); line-height:1.5;
+  }
+  .rail-cache b{color:#fff; display:block; font-size:12px; margin-bottom:3px;}
+  .rail-cache-actions{display:flex; gap:6px; margin-top:8px;}
+  .rail-cache-actions button{
+    flex:1; font-size:11px; padding:6px 0; border-radius:7px; border:1px solid rgba(255,255,255,.18);
+    background:transparent; color:#fff; cursor:pointer; font-family:'Manrope'; font-weight:600;
+  }
+  .rail-cache-actions button:hover{background:rgba(255,255,255,.1);}
+
+  /* ---------- Основная область ---------- */
+  .main{flex:1; min-width:0; padding:40px 48px 80px;}
+  .main-inner{max-width:920px; margin:0 auto;}
+
+  .page-head{margin-bottom:28px;}
+  .eyebrow{
+    font-family:'IBM Plex Mono'; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--violet-600); font-weight:600; margin-bottom:8px; display:flex; align-items:center; gap:8px;
+  }
+  .page-head h1{font-size:26px; font-weight:600; margin:0 0 8px; letter-spacing:-.01em;}
+  .page-head p{color:var(--ink-soft); font-size:14.5px; line-height:1.55; margin:0; max-width:640px;}
+
+  .card{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:26px 28px; margin-bottom:20px;
+  }
+  .card h2{font-size:16px; font-weight:600; margin:0 0 4px;}
+  .card .card-desc{font-size:13px; color:var(--ink-soft); margin:0 0 18px; line-height:1.5;}
+
+  /* dropzone */
+  .dropzone{
+    border:1.5px dashed var(--violet-400); border-radius:var(--radius-sm);
+    background:var(--violet-50);
+    padding:34px 20px; text-align:center; cursor:pointer;
+    transition:border-color .15s, background .15s;
+  }
+  .dropzone:hover, .dropzone.is-drag{background:var(--violet-100); border-color:var(--violet-600);}
+  .dropzone input{display:none;}
+  .dropzone .dz-icon{
+    width:44px; height:44px; margin:0 auto 12px; border-radius:12px;
+    background:#fff; border:1px solid var(--line); display:flex; align-items:center; justify-content:center;
+  }
+  .dropzone .dz-title{font-weight:700; font-size:14px; color:var(--violet-900); margin-bottom:3px;}
+  .dropzone .dz-sub{font-size:12.5px; color:var(--ink-faint);}
+
+  .file-chip{
+    display:flex; align-items:center; gap:10px; padding:11px 14px;
+    background:var(--violet-50); border:1px solid var(--line); border-radius:10px; font-size:13px;
+    margin-top:12px;
+  }
+  .file-chip .fc-icon{
+    width:28px; height:28px; border-radius:7px; background:var(--violet-600); color:#fff;
+    display:flex; align-items:center; justify-content:center; flex:0 0 28px; font-size:12px; font-weight:700;
+  }
+  .file-chip .fc-name{font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .file-chip .fc-remove{cursor:pointer; color:var(--ink-faint); font-size:12px; padding:4px;}
+  .file-chip .fc-remove:hover{color:var(--red);}
+
+  button.btn{
+    font-family:'Manrope'; font-weight:700; font-size:13.5px; border-radius:10px; border:none;
+    padding:11px 20px; cursor:pointer; transition:transform .06s, box-shadow .15s, background .15s;
+    display:inline-flex; align-items:center; gap:8px;
+  }
+  button.btn:active{transform:scale(.98);}
+  button.btn:disabled{opacity:.4; cursor:not-allowed;}
+  .btn-primary{background:var(--violet-600); color:#fff; box-shadow:0 4px 14px -4px rgba(124,58,237,.55);}
+  .btn-primary:hover:not(:disabled){background:var(--violet-700);}
+  .btn-ghost{background:transparent; color:var(--violet-700); border:1.5px solid var(--line);}
+  .btn-ghost:hover:not(:disabled){background:var(--violet-50); border-color:var(--violet-400);}
+  .btn-sm{padding:7px 13px; font-size:12.5px; border-radius:8px;}
+  .btn-text{background:none; border:none; color:var(--violet-600); font-weight:700; font-size:12.5px; cursor:pointer; padding:4px;}
+
+  .field-row{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;}
+  label.field-label{display:block; font-size:12px; font-weight:700; color:var(--ink-soft); margin-bottom:6px;}
+  input[type=text], select, textarea{
+    width:100%; font-family:'Manrope'; font-size:13.5px; padding:10px 12px;
+    border:1.5px solid var(--line); border-radius:9px; background:#fff; color:var(--ink);
+  }
+  input[type=text]:focus, select:focus, textarea:focus{outline:2px solid var(--violet-400); outline-offset:1px; border-color:var(--violet-500);}
+  textarea{font-family:'IBM Plex Mono'; font-size:12px; line-height:1.6;}
+
+  .badge{
+    display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700;
+    padding:3px 9px; border-radius:99px; font-family:'IBM Plex Mono';
+  }
+  .badge-green{background:var(--green-bg); color:var(--green); border:1px solid var(--green-line);}
+  .badge-amber{background:var(--amber-bg); color:var(--amber); border:1px solid var(--amber-line);}
+  .badge-red{background:var(--red-bg); color:var(--red); border:1px solid var(--red-line);}
+  .badge-violet{background:var(--violet-100); color:var(--violet-700); border:1px solid var(--violet-400);}
+
+  /* confidence meter - фирменный элемент */
+  .conf{display:flex; align-items:center; gap:8px;}
+  .conf-track{width:64px; height:6px; border-radius:99px; background:var(--line-soft); overflow:hidden; flex:0 0 64px;}
+  .conf-fill{height:100%; border-radius:99px; background:linear-gradient(90deg, var(--violet-400), var(--violet-600));}
+  .conf-num{font-family:'IBM Plex Mono'; font-size:11px; font-weight:600; color:var(--ink-soft); width:34px;}
+
+  /* review list */
+  .review-section{margin-bottom:26px;}
+  .review-section-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; cursor:pointer;}
+  .review-section-head h3{font-size:14px; margin:0; display:flex; align-items:center; gap:9px;}
+  .review-section-head .count{font-family:'IBM Plex Mono'; font-size:12px; color:var(--ink-soft);}
+  .chev{transition:transform .15s; color:var(--ink-faint);}
+  .chev.is-open{transform:rotate(90deg);}
+
+  .item{
+    border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:10px; background:#fff;
+    transition:box-shadow .15s, border-color .15s;
+  }
+  .item.is-confirmed{border-color:var(--green-line); background:var(--green-bg);}
+  .item.is-snap{animation:snap .35s ease;}
+  @keyframes snap{0%{transform:scale(1);} 40%{transform:scale(1.015);} 100%{transform:scale(1);}}
+  @media (prefers-reduced-motion: reduce){ .item.is-snap{animation:none;} }
+
+  .item-top{display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:2px;}
+  .item-campaign{font-weight:700; font-size:13.5px; word-break:break-word;}
+  .item-meta{font-size:11.5px; color:var(--ink-faint); margin-top:3px;}
+  .item-nums{font-family:'IBM Plex Mono'; font-size:12px; color:var(--ink-soft); white-space:nowrap; text-align:right;}
+
+  .candidates{display:flex; flex-direction:column; gap:6px; margin-top:12px;}
+  .candidate{
+    display:flex; align-items:center; gap:12px; padding:9px 12px;
+    border:1.5px solid var(--line); border-radius:9px; cursor:pointer; background:#fff;
+    transition:border-color .12s, background .12s;
+  }
+  .candidate:hover{border-color:var(--violet-400); background:var(--violet-50);}
+  .candidate .cand-name{flex:1; font-size:13px; font-weight:600; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .candidate .cand-warn{font-size:10.5px; color:var(--amber); font-weight:700;}
+
+  .manual-row{display:flex; gap:8px; margin-top:10px;}
+  .manual-row input{flex:1;}
+
+  .item-actions{display:flex; gap:8px; margin-top:10px;}
+
+  .excluded-row{
+    display:flex; justify-content:space-between; padding:8px 0; font-size:12.5px;
+    border-bottom:1px solid var(--line-soft); color:var(--ink-soft);
+  }
+  .excluded-row:last-child{border-bottom:none;}
+  .excluded-row .er-name{font-family:'IBM Plex Mono'; font-size:11.5px;}
+  .excluded-row .er-sum{font-family:'IBM Plex Mono'; font-weight:600; color:var(--ink);}
+
+  table.data-table{width:100%; border-collapse:collapse; font-size:13px;}
+  table.data-table th{
+    text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint);
+    font-weight:700; padding:8px 10px; border-bottom:1.5px solid var(--line);
+  }
+  table.data-table td{padding:9px 10px; border-bottom:1px solid var(--line-soft); vertical-align:top;}
+  table.data-table td.num{font-family:'IBM Plex Mono'; text-align:right; white-space:nowrap;}
+  table.data-table tr:hover td{background:var(--violet-50);}
+
+  .empty-note{
+    text-align:center; padding:34px 20px; color:var(--ink-faint); font-size:13px;
+  }
+
+  .progress-pill{
+    display:flex; align-items:center; gap:10px; background:var(--violet-50); border:1px solid var(--violet-100);
+    border-radius:99px; padding:8px 16px; font-size:12.5px; font-weight:600; color:var(--violet-700); width:fit-content;
+  }
+  .progress-track{width:120px; height:6px; border-radius:99px; background:#fff; overflow:hidden; border:1px solid var(--violet-100);}
+  .progress-fill{height:100%; background:var(--violet-600); border-radius:99px; transition:width .25s;}
+
+  .summary-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:6px;}
+  .summary-tile{border:1px solid var(--line); border-radius:12px; padding:16px 18px; background:var(--violet-50);}
+  .summary-tile .st-label{font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--violet-700); font-weight:700; margin-bottom:6px;}
+  .summary-tile .st-value{font-family:'IBM Plex Mono'; font-size:20px; font-weight:600; color:var(--violet-900);}
+  .summary-tile .st-sub{font-size:11.5px; color:var(--ink-faint); margin-top:3px;}
+
+  .toast{
+    position:fixed; bottom:24px; right:24px; background:var(--violet-900); color:#fff;
+    padding:13px 18px; border-radius:11px; font-size:13px; font-weight:600; box-shadow:0 10px 30px -8px rgba(30,16,51,.5);
+    display:flex; align-items:center; gap:10px; z-index:100; max-width:360px;
+    animation:toast-in .2s ease;
+  }
+  @keyframes toast-in{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);}}
+
+  .settings-toggle{
+    display:flex; align-items:center; justify-content:space-between; cursor:pointer;
+    padding:14px 0; border-top:1px solid var(--line-soft); margin-top:6px;
+  }
+  .settings-body{display:none; padding-top:14px;}
+  .settings-body.is-open{display:block;}
+  .toggle-row{display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--line-soft);}
+  .toggle-row:last-child{border-bottom:none;}
+  .toggle-row .tr-label{font-size:13px; font-weight:600;}
+  .toggle-row .tr-desc{font-size:11.5px; color:var(--ink-faint); margin-top:2px; max-width:440px;}
+  .switch{position:relative; width:40px; height:22px; flex:0 0 40px;}
+  .switch input{opacity:0; width:0; height:0;}
+  .switch .slider{position:absolute; inset:0; background:var(--line); border-radius:99px; cursor:pointer; transition:.15s;}
+  .switch .slider:before{content:''; position:absolute; width:16px; height:16px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.15s; box-shadow:0 1px 3px rgba(0,0,0,.25);}
+  .switch input:checked + .slider{background:var(--violet-600);}
+  .switch input:checked + .slider:before{transform:translateX(18px);}
+
+  .vendor-picker{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  .vendor-chip{
+    padding:9px 14px; border-radius:9px; border:1.5px solid var(--line); font-size:13px; font-weight:600;
+    cursor:pointer; background:#fff;
+  }
+  .vendor-chip.is-selected{border-color:var(--violet-600); background:var(--violet-100); color:var(--violet-800, var(--violet-700));}
+
+  .hidden{display:none !important;}
+  .flex-between{display:flex; align-items:center; justify-content:space-between; gap:12px;}
+  .mt-8{margin-top:8px;} .mt-14{margin-top:14px;} .mt-20{margin-top:20px;}
+
+  @media (max-width: 860px){
+    .rail{position:relative; width:100%; flex:none; height:auto;}
+    .app{flex-direction:column;}
+    .main{padding:24px 18px 60px;}
+    .summary-grid{grid-template-columns:1fr;}
+    .field-row{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ================= ЛЕВАЯ ПАНЕЛЬ ================= -->
+  <nav class="rail">
+    <div class="rail-brand">
+      <div class="mark">С</div>
+      <div>
+        <div class="name">Сверка</div>
+        <div class="sub">закрытие подрядчиков</div>
+      </div>
+    </div>
+
+    <div id="railMonthChip" class="hidden" style="margin-bottom:20px; padding:11px 13px; border-radius:11px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); cursor:pointer;">
+      <div style="font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--violet-400); font-weight:700; margin-bottom:3px;">Лист месяца</div>
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+        <div id="railMonthName" style="font-family:'Space Grotesk'; font-weight:600; font-size:14px; color:#fff;"></div>
+        <div style="font-size:11px; color:var(--violet-400); font-weight:700;">изменить</div>
+      </div>
+    </div>
+
+    <ul class="rail-steps" id="railSteps">
+      <li class="rail-step" data-step="1">
+        <div class="num">1</div>
+        <div><div class="label">Таблица маржинальности</div><div class="hint">Подрядчики и проекты месяца</div></div>
+      </li>
+      <li class="rail-step" data-step="2">
+        <div class="num">2</div>
+        <div><div class="label">Загрузка сверки</div><div class="hint">Файл от подрядчика или биллинг</div></div>
+      </li>
+      <li class="rail-step" data-step="3">
+        <div class="num">3</div>
+        <div><div class="label">Проверка совпадений</div><div class="hint">Подтвердите то, что программа не уверена</div></div>
+      </li>
+      <li class="rail-step" data-step="4">
+        <div class="num">4</div>
+        <div><div class="label">Итог и выгрузка</div><div class="hint">Сводка изменений для таблицы</div></div>
+      </li>
+    </ul>
+
+    <div class="rail-cache">
+      <b id="cacheCount">Подсказки: 0</b>
+      Запомненные соответствия «кампания → проект» действуют в рамках этой сессии браузера. Поделитесь файлом с коллегами, чтобы не сопоставлять одно и то же дважды.
+      <div class="rail-cache-actions">
+        <button id="btnExportCache">Экспорт</button>
+        <button id="btnImportCache">Импорт</button>
+      </div>
+      <input type="file" id="cacheFileInput" accept=".json" class="hidden">
+    </div>
+  </nav>
+
+  <!-- ================= ОСНОВНАЯ ОБЛАСТЬ ================= -->
+  <main class="main">
+    <div class="main-inner">
+
+      <!-- ---------- ШАГ 1 ---------- -->
+      <section id="step1" class="step">
+        <div class="page-head">
+          <div class="eyebrow">Шаг 1 из 4</div>
+          <h1>Таблица маржинальности</h1>
+          <p>Загрузите текущий лист месяца (экспорт из Google Таблицы в .xlsx). Программа найдёт колонки подрядчиков и список проектов — это понадобится для сопоставления кампаний.</p>
+        </div>
+
+        <div class="card">
+          <h2>Файл таблицы</h2>
+          <p class="card-desc">Файл → Скачать → Microsoft Excel (.xlsx) из вашей гугл-таблицы, лист текущего месяца.</p>
+          <div class="dropzone" id="dzMargin">
+            <input type="file" id="fileMargin" accept=".xlsx,.xls">
+            <div class="dz-icon">📊</div>
+            <div class="dz-title">Перетащите файл сюда или нажмите, чтобы выбрать</div>
+            <div class="dz-sub">.xlsx до 25 МБ</div>
+          </div>
+          <div id="marginFileChip"></div>
+
+          <div id="marginSheetPicker" class="hidden mt-14">
+            <label class="field-label">Лист месяца</label>
+            <select id="marginSheetSelect"></select>
+          </div>
+
+          <div id="marginParseResult" class="hidden mt-20"></div>
+
+          <div class="settings-toggle" id="marginSettingsToggle">
+            <span style="font-size:13px; font-weight:700; color:var(--violet-700);">Расширенные настройки листа</span>
+            <span class="chev" id="marginSettingsChev">›</span>
+          </div>
+          <div class="settings-body" id="marginSettingsBody">
+            <div class="field-row">
+              <div>
+                <label class="field-label">Строка с названиями подрядчиков</label>
+                <input type="text" id="cfgHeaderRow" value="2">
+              </div>
+              <div>
+                <label class="field-label">Колонка «Проект»</label>
+                <input type="text" id="cfgProjectCol" value="C">
+              </div>
+            </div>
+            <div class="field-row">
+              <div>
+                <label class="field-label">Первая колонка блоков подрядчиков</label>
+                <input type="text" id="cfgFirstBlockCol" value="U">
+              </div>
+              <div>
+                <label class="field-label">Первая строка проектов</label>
+                <input type="text" id="cfgFirstDataRow" value="5">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" id="btnToStep2" disabled>Продолжить →</button>
+      </section>
+
+      <!-- ---------- ШАГ 2 ---------- -->
+      <section id="step2" class="step hidden">
+        <div class="page-head">
+          <div class="eyebrow">Шаг 2 из 4</div>
+          <h1>Загрузка сверки</h1>
+          <p>Загружайте файлы по одному — сверку подрядчика (1 или 2 листа), отдельный биллинг DSP, МТС или Директ. Программа сама определит тип файла.</p>
+        </div>
+
+        <div class="card">
+          <h2>Файл сверки</h2>
+          <p class="card-desc">Поддерживаются: сверка подрядчика (Поток/Кампания/Цена/Показы/Сумма), биллинг DSP (SSP/Impressions/Payout), МТС, Яндекс.Директ.</p>
+          <div class="dropzone" id="dzRecon">
+            <input type="file" id="fileRecon" accept=".xlsx,.xls">
+            <div class="dz-icon">📄</div>
+            <div class="dz-title">Перетащите файл сверки или нажмите, чтобы выбрать</div>
+            <div class="dz-sub">.xlsx / .xls</div>
+          </div>
+          <div id="reconFileChip"></div>
+
+          <div id="reconTypeResult" class="hidden mt-20"></div>
+
+          <div id="vendorNameBlock" class="hidden mt-14">
+            <label class="field-label">Название подрядчика (для поиска колонки в таблице)</label>
+            <input type="text" id="vendorNameInput" placeholder="например, MoeVideo">
+            <div class="vendor-picker mt-8" id="vendorMatchInfo"></div>
+          </div>
+
+          <div class="toggle-row mt-14" style="border-top:1px solid var(--line-soft); padding-top:14px;">
+            <div>
+              <div class="tr-label">Автоматически исключать DSP без названия кампании</div>
+              <div class="tr-desc">Строки с реальными показами и суммой, но без привязки к проекту, будут удаляться без вопроса. Если выключить — они попадут в очередь на подтверждение на шаге 3.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggleExcludeDsp" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="flex-between">
+          <button class="btn btn-ghost" id="btnBackTo1">← Таблица маржинальности</button>
+          <button class="btn btn-primary" id="btnProcessRecon" disabled>Обработать файл →</button>
+        </div>
+      </section>
+
+      <!-- ---------- ШАГ 3 ---------- -->
+      <section id="step3" class="step hidden">
+        <div class="page-head">
+          <div class="eyebrow">Шаг 3 из 4</div>
+          <h1>Проверка совпадений</h1>
+          <p>Точные и уверенные совпадения программа применила сама. Ниже — только то, что нужно подтвердить или где несколько похожих вариантов.</p>
+        </div>
+
+        <div class="progress-pill mt-8" id="reviewProgress">
+          <span id="reviewProgressText">0 из 0 подтверждено</span>
+          <div class="progress-track"><div class="progress-fill" id="reviewProgressFill" style="width:0%"></div></div>
+        </div>
+
+        <div class="mt-20" id="reviewSections"></div>
+
+        <div class="flex-between mt-20">
+          <button class="btn btn-ghost" id="btnBackTo2">← Загрузить ещё файл</button>
+          <button class="btn btn-primary" id="btnToStep4" disabled>К итогам →</button>
+        </div>
+      </section>
+
+      <!-- ---------- ШАГ 4 ---------- -->
+      <section id="step4" class="step hidden">
+        <div class="page-head">
+          <div class="eyebrow">Шаг 4 из 4</div>
+          <h1>Итог и выгрузка</h1>
+          <p>Сводка по всем обработанным за сессию файлам. Скачайте изменения и перенесите в таблицу маржинальности.</p>
+        </div>
+
+        <div class="card">
+          <h2>Суммы по подрядчикам</h2>
+          <p class="card-desc">Показы — в тысячах, суммы — до НДС, округление до 2 знаков.</p>
+          <div id="summaryByVendor"></div>
+        </div>
+
+        <div class="card">
+          <div class="flex-between">
+            <div>
+              <h2>Все изменения (<span id="changeCount">0</span>)</h2>
+              <p class="card-desc">Строка / колонка — точный адрес ячейки в загруженной таблице маржинальности.</p>
+            </div>
+            <button class="btn btn-primary btn-sm" id="btnDownloadXlsx">⭳ Скачать .xlsx</button>
+          </div>
+          <div id="changesTableWrap" style="max-height:420px; overflow:auto; border:1px solid var(--line); border-radius:10px;"></div>
+        </div>
+
+        <button class="btn btn-ghost" id="btnBackTo2From4">← Загрузить ещё один файл сверки</button>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<div id="toastRoot"></div>
+
+<script>
+/* ============================================================================
+   БИЗНЕС-ЛОГИКА (порт processor.py / updater.py на JS, проверен на реальных
+   данных через node - см. logic.js/test_logic.js в комплекте поставки)
+   ============================================================================ */
+
+function splitCamelCase(s){ return s.replace(/([a-zа-я])(?=[A-ZА-Я])/gu, '$1 '); }
+function splitLettersDigits(s){
+  s = s.replace(/([A-Za-zА-Яа-я])(?=\d)/gu, '$1 ');
+  s = s.replace(/(\d)(?=[A-Za-zА-Яа-я])/gu, '$1 ');
+  return s;
+}
+function normalizeText(s){
+  if (s === null || s === undefined) return '';
+  let t = String(s);
+  t = splitCamelCase(t);
+  t = splitLettersDigits(t);
+  t = t.toLowerCase().replace(/ё/g,'е');
+  // JS \W - только ASCII, кириллица "не буква". Поэтому явный юникод-класс.
+  t = t.replace(/[^\p{L}\p{N}]+/gu, ' ');
+  return t.replace(/\s+/g,' ').trim();
+}
+function tokens(s){
+  const n = normalizeText(s);
+  if (!n) return [];
+  return n.split(' ').filter(t=>t.length>1);
+}
+function fuzzyScore(campaignName, projectName){
+  const ct = tokens(campaignName), pt = tokens(projectName);
+  if (!ct.length || !pt.length) return 0;
+  const ctSet = new Set(ct), ptSet = new Set(pt);
+  let inter = 0;
+  for (const t of ctSet) if (ptSet.has(t)) inter++;
+  if (inter === 0) return 0;
+  const coverageP = inter/ptSet.size, coverageC = inter/ctSet.size;
+  const union = new Set([...ctSet,...ptSet]).size;
+  const jaccard = inter/union;
+  return 0.5*coverageP + 0.3*jaccard + 0.2*coverageC;
+}
+const MONTH_TOKENS = {jan:1,january:1,янв:1,январь:1,feb:2,february:2,фев:2,февраль:2,mar:3,march:3,март:3,мар:3,apr:4,april:4,апр:4,апрель:4,may:5,май:5,jun:6,june:6,июн:6,июнь:6,jul:7,july:7,июл:7,июль:7,aug:8,august:8,авг:8,август:8,sep:9,sept:9,september:9,сен:9,сентябрь:9,oct:10,october:10,окт:10,октябрь:10,nov:11,november:11,ноя:11,ноябрь:11,dec:12,december:12,дек:12,декабрь:12};
+function monthsIn(list){ const s=new Set(); for(const t of list) if(MONTH_TOKENS[t]!==undefined) s.add(MONTH_TOKENS[t]); return s; }
+function hasMonthConflict(a,b){
+  const cm = monthsIn(tokens(a)), pm = monthsIn(tokens(b));
+  if (!cm.size || !pm.size) return false;
+  for (const m of cm) if (pm.has(m)) return false;
+  return true;
+}
+function strongNormalize(s){ return String(s).replace(/['" _]/g,'').toLowerCase(); }
+function extractUid(s){ const m = String(s).match(/\|UID(\w+)/); return m?m[1]:null; }
+function isOlvCampaign(name){
+  if (name===null||name===undefined||name==='') return false;
+  return /olv[\s_]*camp/i.test(String(name));
+}
+function findColIdx(headers, includesAll, excludesAny){
+  for (let i=0;i<headers.length;i++){
+    const h = normalizeText(headers[i]);
+    if (!h) continue;
+    if (!includesAll.every(k=>h.includes(normalizeText(k)))) continue;
+    if (excludesAny && excludesAny.some(k=>h.includes(normalizeText(k)))) continue;
+    return i;
+  }
+  return -1;
+}
+function findAmountColumnIdx(headers){
+  let idx = findColIdx(headers, ['скидк'], []);
+  if (idx!==-1 && !normalizeText(headers[idx]).includes('нд')) idx=-1;
+  if (idx===-1) idx = findColIdx(headers, ['без','нд']);
+  return idx;
+}
+function detectFileType(headers){
+  const norm = headers.map(normalizeText);
+  const has = (...keys)=>keys.every(k=>norm.some(h=>h.includes(k)));
+  const joined = norm.join('|');
+  if (has('поток','кампани','показ')) return 'vendor';
+  if (joined.includes('ssp') && joined.includes('impressions')) return 'dsp_billing';
+  if (has('рекламодатель','кампани','показ')) return 'mts';
+  if (has('кампани','показ') && (joined.includes('расход')||joined.includes('затрат'))) return 'direct';
+  return null;
+}
+function isRowFullyEmpty(row, impIdx, moneyIdxs){
+  const imp = Number(row[impIdx]);
+  if (imp) return false;
+  for (const mi of moneyIdxs){ if (Number(row[mi])) return false; }
+  return true;
+}
+function cleanBasic(rows, campaignIdx, impIdx, moneyIdxs){
+  return rows.filter(row=>{
+    if (campaignIdx!==-1 && isOlvCampaign(row[campaignIdx])) return false;
+    if (isRowFullyEmpty(row, impIdx, moneyIdxs)) return false;
+    return true;
+  });
+}
+function splitMainDspByOrder(rows, priceIdx, amountIdx){
+  let fracIdx=null;
+  if (priceIdx!==-1){
+    for (let i=0;i<rows.length;i++){
+      const v = Number(rows[i][priceIdx]);
+      if (Number.isNaN(v)) continue;
+      if (v !== Math.trunc(v)){ fracIdx=i; break; }
+    }
+  }
+  let jumpIdx=null;
+  const col = amountIdx!==-1?amountIdx:priceIdx;
+  if (col!==-1){
+    for (let i=1;i<rows.length;i++){
+      const prev=Number(rows[i-1][col]), cur=Number(rows[i][col]);
+      if (Number.isNaN(prev)||Number.isNaN(cur)) continue;
+      if (prev>0 && cur>prev*1.0001){ jumpIdx=i; break; }
+    }
+  }
+  const cands = [fracIdx,jumpIdx].filter(x=>x!==null);
+  if (!cands.length) return {mainRows:rows, dspRows:[], boundary:null};
+  const boundary = Math.min(...cands);
+  return {mainRows:rows.slice(0,boundary), dspRows:rows.slice(boundary), boundary};
+}
+function collapseByKey(rows, keyIdx, impIdx, amountIdx){
+  const map = new Map(); const order=[];
+  for (const row of rows){
+    const key = row[keyIdx];
+    if (key===null||key===undefined||String(key).trim()==='') continue;
+    const k = String(key);
+    if (!map.has(k)){ map.set(k,{key:k, imp:0, amount:0}); order.push(k); }
+    const e = map.get(k);
+    e.imp += Number(row[impIdx])||0;
+    e.amount += Number(row[amountIdx])||0;
+  }
+  return order.map(k=>map.get(k));
+}
+function colLetter(n){ // 1-indexed -> 'A','B',...,'AA'
+  let s=''; while(n>0){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=Math.floor((n-1)/26); } return s;
+}
+
+/* ============================================================================
+   СОСТОЯНИЕ ПРИЛОЖЕНИЯ
+   ============================================================================ */
+const STATE = {
+  step: 1,
+  margin: null,        // {aoa, sheetNames, activeSheet, contractorMap, projectIndex, lastDataRow}
+  cache: {},            // campaignText(lowercased-ish) -> project name
+  currentRecon: null,   // {fileName, fileType, sheetsAoa, vendorLabel}
+  unresolved: [],        // очередь на подтверждение (across all files this session)
+  excludedLog: [],       // авто-исключённые DSP-без-кампании (информационно)
+  changes: [],            // [{row, project, vendorLabel, block, qtyCell, amountCell, unitCell, imp, amount, source}]
+  settings: {
+    AUTO_MATCH_THRESHOLD: 0.55,
+    AMBIGUOUS_MARGIN: 0.08,
+    MIN_CANDIDATE_SCORE: 0.25,
+    EXCLUDE_DSP_TAIL_WITHOUT_CAMPAIGN: true,
+    SSP_TO_DSP_COLUMN: {
+      "Between Exchange":"Between Exchange DSP","Solta":"Solta DSP","Ohmybid":"Ohmybid DSP",
+      "Ohmybid_CTV":"Ohmybid DSP","Adlook_Inread":"Adlook DSP","sape.ru":"Sape DSP",
+      "Sape_Rewarded":"Sape DSP","Bidster_Instream_80":"Bidster DSP","Yandex":"Yandex DSP",
+      "Videonow_Banners":"Videonow DSP","Videonow_Instream_100":"Videonow DSP","Videonow_Outstream_80":"Videonow DSP",
+      "ADX-MoeVideo-85":"MoeVideo DSP","MoeVideo_Instream_85":"MoeVideo DSP","MoeVideo_Outstream_65":"MoeVideo DSP"
+    },
+    SSP_IGNORE: ["Adspector-test","SSP test"],
+  },
+};
+
+/* ============================================================================
+   УТИЛИТЫ UI
+   ============================================================================ */
+function $(id){ return document.getElementById(id); }
+function toast(msg){
+  const el = document.createElement('div');
+  el.className='toast'; el.textContent = msg;
+  $('toastRoot').appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity .25s'; setTimeout(()=>el.remove(),250); }, 2600);
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtNum(n, d){ return Number(n).toLocaleString('ru-RU',{minimumFractionDigits:d, maximumFractionDigits:d}); }
+
+function goToStep(n){
+  STATE.step = n;
+  for (let i=1;i<=4;i++){ $('step'+i).classList.toggle('hidden', i!==n); }
+  document.querySelectorAll('.rail-step').forEach(el=>{
+    const s = Number(el.dataset.step);
+    el.classList.toggle('is-active', s===n);
+    el.classList.toggle('is-done', s<n);
+    el.classList.toggle('is-reachable', s <= maxReachableStep());
+  });
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function maxReachableStep(){
+  if (!STATE.margin) return 1;
+  if (STATE.step < 2) return 2;
+  return Math.max(STATE.step, STATE.margin?2:1);
+}
+document.querySelectorAll('.rail-step').forEach(el=>{
+  el.addEventListener('click', ()=>{
+    const s = Number(el.dataset.step);
+    if (el.classList.contains('is-reachable')) goToStep(s);
+  });
+});
+$('railMonthChip').addEventListener('click', ()=> goToStep(1));
+
+/* ============================================================================
+   ШАГ 1 — ТАБЛИЦА МАРЖИНАЛЬНОСТИ
+   ============================================================================ */
+function colLetterToIdx(letter){ // 'C' -> 2 (0-indexed)
+  letter = letter.trim().toUpperCase();
+  let n=0; for (const ch of letter){ n = n*26 + (ch.charCodeAt(0)-64); }
+  return n-1;
+}
+
+function setupDropzone(dzId, inputId, onFile){
+  const dz = $(dzId), input = $(inputId);
+  dz.addEventListener('click', ()=>input.click());
+  dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.classList.add('is-drag'); });
+  dz.addEventListener('dragleave', ()=> dz.classList.remove('is-drag'));
+  dz.addEventListener('drop', e=>{
+    e.preventDefault(); dz.classList.remove('is-drag');
+    if (e.dataTransfer.files.length) onFile(e.dataTransfer.files[0]);
+  });
+  input.addEventListener('change', e=>{ if (e.target.files.length) onFile(e.target.files[0]); });
+}
+
+function readWorkbook(file){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = e=>{
+      try{
+        const wb = XLSX.read(e.target.result, {type:'array', cellDates:false});
+        resolve(wb);
+      }catch(err){ reject(err); }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function guessMonthSheet(sheetNames){
+  const now = new Date();
+  const curMonth = now.getMonth()+1; // 1-12
+  const curYear2 = String(now.getFullYear()).slice(-2);
+  let best = null, bestScore = -1;
+  sheetNames.forEach(name=>{
+    const toks = tokens(name);
+    const hasMonth = toks.some(t => MONTH_TOKENS[t]===curMonth);
+    const hasYear = toks.includes(curYear2);
+    const score = (hasMonth?2:0) + (hasYear?1:0);
+    if (score > bestScore){ bestScore = score; best = name; }
+  });
+  return bestScore > 0 ? best : null;
+}
+
+let marginFile = null;
+
+setupDropzone('dzMargin','fileMargin', async (file)=>{
+  marginFile = file;
+  $('marginFileChip').innerHTML = fileChipHtml(file.name, ()=>{ marginFile=null; $('marginFileChip').innerHTML=''; $('marginSheetPicker').classList.add('hidden'); $('marginParseResult').classList.add('hidden'); $('btnToStep2').disabled=true; });
+  try{
+    const wb = await readWorkbook(file);
+    const sel = $('marginSheetSelect');
+    sel.innerHTML = wb.SheetNames.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    const guessed = guessMonthSheet(wb.SheetNames);
+    if (guessed) sel.value = guessed;
+    $('marginSheetPicker').classList.remove('hidden');
+    window.__marginWb = wb;
+    parseMarginSheet();
+  }catch(err){
+    toast('Не удалось прочитать файл: '+err.message);
+  }
+});
+$('marginSheetSelect').addEventListener('change', ()=>{
+  const hasWork = STATE.changes.length > 0 || STATE.unresolved.length > 0;
+  if (hasWork && STATE.margin && STATE.margin.sheetName !== $('marginSheetSelect').value){
+    const ok = confirm(
+      `Вы уже обработали данные для листа «${STATE.margin.sheetName}» ` +
+      `(подтверждено: ${STATE.changes.length}, в очереди: ${STATE.unresolved.length}).\n\n` +
+      `Номера строк для этих данных относятся именно к этому листу — при переключении на другой месяц ` +
+      `они станут неверными. Продолжить и очистить текущий прогресс?`
+    );
+    if (!ok){
+      $('marginSheetSelect').value = STATE.margin.sheetName;
+      return;
+    }
+    STATE.changes = [];
+    STATE.unresolved = [];
+    STATE.excludedLog = [];
+    toast('Прогресс очищен — переключились на другой лист месяца.');
+  }
+  parseMarginSheet();
+});
+['cfgHeaderRow','cfgProjectCol','cfgFirstBlockCol','cfgFirstDataRow'].forEach(id=>{
+  $(id).addEventListener('change', parseMarginSheet);
+});
+
+function fileChipHtml(name, onRemove){
+  const id = 'rm_'+Math.random().toString(36).slice(2);
+  setTimeout(()=>{ const btn=$(id); if(btn) btn.addEventListener('click', onRemove); },0);
+  const ext = name.split('.').pop().toUpperCase();
+  return `<div class="file-chip"><div class="fc-icon">${escapeHtml(ext)}</div><div class="fc-name">${escapeHtml(name)}</div><div class="fc-remove" id="${id}">✕</div></div>`;
+}
+
+function parseMarginSheet(){
+  const wb = window.__marginWb;
+  if (!wb) return;
+  const sheetName = $('marginSheetSelect').value;
+  const ws = wb.Sheets[sheetName];
+  const aoa = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
+
+  const headerRowIdx = Number($('cfgHeaderRow').value) - 1;
+  const projectColIdx = colLetterToIdx($('cfgProjectCol').value);
+  const firstBlockColIdx = colLetterToIdx($('cfgFirstBlockCol').value);
+  const firstDataRowIdx = Number($('cfgFirstDataRow').value) - 1;
+
+  const headerRow = aoa[headerRowIdx] || [];
+  const contractorMap = {}; // name -> {unitCol, qtyCol, amountCol} (1-indexed, sheet columns)
+  let c = firstBlockColIdx;
+  const lastCol = Math.max(...aoa.map(r=>r?r.length:0));
+  while (c < lastCol){
+    const name = headerRow[c];
+    if (name !== null && name !== undefined && String(name).trim() !== ''){
+      contractorMap[String(name).trim()] = {unitCol:c+1, qtyCol:c+2, amountCol:c+3};
+      c += 3;
+    } else { c += 1; }
+  }
+
+  const projectIndex = {}; // name -> row number (1-indexed sheet row)
+  let lastDataRow = firstDataRowIdx;
+  for (let r = firstDataRowIdx; r < aoa.length; r++){
+    const v = aoa[r] ? aoa[r][projectColIdx] : null;
+    if (v !== null && v !== undefined && String(v).trim() !== '' && !String(v).toUpperCase().includes('ИТОГО')){
+      projectIndex[String(v).trim()] = r+1;
+      lastDataRow = r+1;
+    }
+  }
+
+  STATE.margin = {aoa, sheetName, contractorMap, projectIndex, lastDataRow, projectColIdx};
+
+  $('railMonthChip').classList.remove('hidden');
+  $('railMonthName').textContent = sheetName;
+
+  const contractorCount = Object.keys(contractorMap).length;
+  const projectCount = Object.keys(projectIndex).length;
+  $('marginParseResult').classList.remove('hidden');
+  $('marginParseResult').innerHTML = `
+    <div class="summary-grid">
+      <div class="summary-tile">
+        <div class="st-label">Подрядчиков найдено</div>
+        <div class="st-value">${contractorCount}</div>
+        <div class="st-sub">колонок-блоков в строке ${headerRowIdx+1}</div>
+      </div>
+      <div class="summary-tile">
+        <div class="st-label">Проектов найдено</div>
+        <div class="st-value">${projectCount}</div>
+        <div class="st-sub">в колонке ${$('cfgProjectCol').value}, с ${firstDataRowIdx+1} строки</div>
+      </div>
+      <div class="summary-tile">
+        <div class="st-label">Лист</div>
+        <div class="st-value" style="font-size:15px;">${escapeHtml(sheetName)}</div>
+        <div class="st-sub">выбран для записи</div>
+      </div>
+    </div>`;
+  $('btnToStep2').disabled = contractorCount===0 || projectCount===0;
+  if (contractorCount===0 || projectCount===0){
+    toast('Не нашли подрядчиков или проекты — проверьте расширенные настройки листа.');
+  }
+}
+
+$('marginSettingsToggle').addEventListener('click', ()=>{
+  $('marginSettingsBody').classList.toggle('is-open');
+  $('marginSettingsChev').classList.toggle('is-open');
+});
+$('btnToStep2').addEventListener('click', ()=> goToStep(2));
+$('btnBackTo1').addEventListener('click', ()=> goToStep(1));
+
+/* ============================================================================
+   ШАГ 2 — ЗАГРУЗКА СВЕРКИ
+   ============================================================================ */
+let reconFile = null;
+
+setupDropzone('dzRecon','fileRecon', async (file)=>{
+  reconFile = file;
+  $('reconFileChip').innerHTML = fileChipHtml(file.name, resetReconFile);
+  try{
+    const wb = await readWorkbook(file);
+    const sheets = {};
+    wb.SheetNames.forEach(name=>{
+      sheets[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1, raw:true, defval:null});
+    });
+    const firstSheetHeaders = (sheets[wb.SheetNames[0]][0] || []).map(h=>h===null?'':String(h));
+    const fileType = detectFileType(firstSheetHeaders);
+
+    STATE.currentRecon = {fileName:file.name, fileType, sheets, sheetNames: wb.SheetNames};
+
+    $('reconTypeResult').classList.remove('hidden');
+    if (!fileType){
+      $('reconTypeResult').innerHTML = `<span class="badge badge-red">Тип файла не распознан</span> <span style="font-size:12.5px;color:var(--ink-soft)">Проверьте, что в первой строке есть понятные заголовки (Поток/Кампания/Показы, или SSP/Impressions, или Рекламодатель, или Расход).</span>`;
+      $('btnProcessRecon').disabled = true;
+      $('vendorNameBlock').classList.add('hidden');
+      return;
+    }
+    const typeLabels = {vendor:'Сверка подрядчика (Adfox + DSP)', dsp_billing:'Биллинг DSP (по SSP)', mts:'Биллинг МТС', direct:'Биллинг Яндекс.Директ'};
+    $('reconTypeResult').innerHTML = `<span class="badge badge-green">${typeLabels[fileType]}</span> <span style="font-size:12.5px;color:var(--ink-soft)">Листов в файле: ${wb.SheetNames.length}</span>`;
+
+    if (fileType==='vendor'){
+      $('vendorNameBlock').classList.remove('hidden');
+      const guess = file.name.split(/[_\.]/)[0];
+      $('vendorNameInput').value = guess;
+      updateVendorMatchInfo();
+    } else {
+      $('vendorNameBlock').classList.add('hidden');
+    }
+    $('btnProcessRecon').disabled = false;
+  }catch(err){
+    toast('Не удалось прочитать файл: '+err.message);
+  }
+});
+
+function resetReconFile(){
+  reconFile=null; STATE.currentRecon=null;
+  $('reconFileChip').innerHTML=''; $('reconTypeResult').classList.add('hidden');
+  $('vendorNameBlock').classList.add('hidden'); $('btnProcessRecon').disabled=true;
+}
+
+$('vendorNameInput').addEventListener('input', updateVendorMatchInfo);
+
+function headerMatchesVendor(header, vendorLabel){
+  const h = normalizeText(header), v = normalizeText(vendorLabel);
+  if (!h || !v) return false;
+  if (h.includes(v) || v.includes(h)) return true;
+  const prefixLen = Math.min(6, v.length);
+  return h.includes(v.slice(0, prefixLen));
+}
+function findVendorColumns(headerRow, vendorLabel){
+  let mainCol=null, dspCol=null;
+  for (let i=0;i<headerRow.length;i++){
+    const cell = headerRow[i];
+    if (!cell) continue;
+    if (i+2 >= headerRow.length && i+3 > headerRow.length) { /* пропускаем недостаточно колонок ниже */ }
+    if (!headerMatchesVendor(String(cell), vendorLabel)) continue;
+    const isDsp = String(cell).toLowerCase().includes('dsp');
+    if (isDsp && dspCol===null) dspCol = i;
+    else if (!isDsp && mainCol===null) mainCol = i;
+    if (mainCol!==null && dspCol!==null) break;
+  }
+  if (mainCol===null && dspCol!==null){ mainCol=dspCol; dspCol=null; }
+  if (mainCol===null) return {main:null, dsp:null};
+  const main = {unitCol:mainCol+1, qtyCol:mainCol+2, amountCol:mainCol+3};
+  const dsp = dspCol!==null ? {unitCol:dspCol+1, qtyCol:dspCol+2, amountCol:dspCol+3} : null;
+  return {main, dsp};
+}
+function updateVendorMatchInfo(){
+  if (!STATE.margin) return;
+  const label = $('vendorNameInput').value.trim();
+  const headerRow = STATE.margin.aoa[Number($('cfgHeaderRow').value)-1] || [];
+  const {main, dsp} = findVendorColumns(headerRow, label);
+  const wrap = $('vendorMatchInfo');
+  if (!label){ wrap.innerHTML=''; return; }
+  if (!main){
+    wrap.innerHTML = `<span class="badge badge-red">Колонка не найдена</span> <span style="font-size:12px;color:var(--ink-soft)">Проверьте написание — должно частично совпадать с заголовком в таблице.</span>`;
+  } else {
+    wrap.innerHTML = `<span class="badge badge-green">Adfox: ${colLetter(main.qtyCol)}/${colLetter(main.amountCol)}</span>` +
+      (dsp ? `<span class="badge badge-violet">DSP: ${colLetter(dsp.qtyCol)}/${colLetter(dsp.amountCol)}</span>` : `<span class="badge badge-amber">DSP-колонка не найдена</span>`);
+  }
+}
+
+$('btnBackTo2').addEventListener('click', ()=> goToStep(2));
+$('btnBackTo2From4').addEventListener('click', ()=>{ resetReconFile(); goToStep(2); });
+$('toggleExcludeDsp').addEventListener('change', e=>{
+  STATE.settings.EXCLUDE_DSP_TAIL_WITHOUT_CAMPAIGN = e.target.checked;
+});
+
+/* ============================================================================
+   ОБРАБОТКА ФАЙЛА СВЕРКИ
+   ============================================================================ */
+function projectValuesFromMargin(){
+  return STATE.margin.projectIndex; // {name: row}
+}
+
+function proposeMatches(campaignName, projectIndex, topN){
+  topN = topN || 3;
+  const scored = [];
+  for (const name in projectIndex){
+    const s = fuzzyScore(campaignName, name);
+    if (s >= STATE.settings.MIN_CANDIDATE_SCORE){
+      scored.push({row:projectIndex[name], project:name, score:Math.round(s*1000)/1000, monthConflict:hasMonthConflict(campaignName,name)});
+    }
+  }
+  scored.sort((a,b)=>b.score-a.score);
+  return scored.slice(0, topN);
+}
+function isConfidentMatch(cands){
+  if (!cands.length) return false;
+  const top = cands[0];
+  if (top.score < STATE.settings.AUTO_MATCH_THRESHOLD) return false;
+  if (top.monthConflict) return false;
+  if (cands.length>1 && (top.score - cands[1].score) < STATE.settings.AMBIGUOUS_MARGIN) return false;
+  return true;
+}
+function findRowByExact(name, projectIndex){ return projectIndex[name] !== undefined ? projectIndex[name] : null; }
+function findRowByStrongNorm(name, projectIndex){
+  const n = strongNormalize(name); if (!n) return null;
+  for (const p in projectIndex) if (strongNormalize(p)===n) return projectIndex[p];
+  return null;
+}
+function findRowByUid(uid, projectIndex){
+  if (!uid) return null;
+  for (const p in projectIndex) if (p.includes('|UID'+uid)) return projectIndex[p];
+  return null;
+}
+
+function addChange(row, projectName, vendorLabel, block, cols, imp, amount, sourceCampaign){
+  // ищем уже существующую запись для (row, amountCol) - суммируем, как и в Python-версии
+  let existing = STATE.changes.find(c=>c.row===row && c.amountCol===cols.amountCol);
+  if (!existing){
+    existing = {row, project:projectName, vendorLabel, block, unitCol:cols.unitCol, qtyCol:cols.qtyCol, amountCol:cols.amountCol, imp:0, amount:0, sources:[]};
+    STATE.changes.push(existing);
+  }
+  existing.imp += imp;
+  existing.amount += amount;
+  existing.sources.push(sourceCampaign);
+}
+
+function resolveCampaign(campaign, imp, amount, cols, vendorLabel, block, source, queueList){
+  const projectIndex = STATE.margin.projectIndex;
+  const cacheKey = campaign;
+
+  if (STATE.cache[cacheKey] !== undefined){
+    const row = findRowByExact(STATE.cache[cacheKey], projectIndex);
+    if (row){ addChange(row, STATE.cache[cacheKey], vendorLabel, block, cols, imp, amount, campaign); return; }
+  }
+  let row = findRowByExact(campaign, projectIndex);
+  if (row){ addChange(row, campaign, vendorLabel, block, cols, imp, amount, campaign); return; }
+
+  row = findRowByStrongNorm(campaign, projectIndex);
+  if (row){
+    const pname = Object.keys(projectIndex).find(p=>projectIndex[p]===row);
+    STATE.cache[cacheKey]=pname;
+    addChange(row, pname, vendorLabel, block, cols, imp, amount, campaign); return;
+  }
+
+  const uid = extractUid(campaign);
+  if (uid){
+    row = findRowByUid(uid, projectIndex);
+    if (row){
+      const pname = Object.keys(projectIndex).find(p=>projectIndex[p]===row);
+      STATE.cache[cacheKey]=pname;
+      addChange(row, pname, vendorLabel, block, cols, imp, amount, campaign); return;
+    }
+  }
+
+  const candidates = proposeMatches(campaign, projectIndex, 3);
+  if (isConfidentMatch(candidates)){
+    const best = candidates[0];
+    STATE.cache[cacheKey]=best.project;
+    addChange(best.row, best.project, vendorLabel, block, cols, imp, amount, campaign); return;
+  }
+
+  queueList.push({
+    id:'u_'+Math.random().toString(36).slice(2),
+    source, campaignOrStream:campaign, imp, amount, cols, vendorLabel, block, candidates, campaignKey:campaign,
+  });
+}
+
+async function processReconFile(){
+  const recon = STATE.currentRecon;
+  if (!recon || !STATE.margin) return;
+
+  const headerRowIdx = Number($('cfgHeaderRow').value)-1;
+  const marginHeaderRow = STATE.margin.aoa[headerRowIdx] || [];
+  const newQueue = [];
+  const newExcluded = [];
+
+  if (recon.fileType === 'vendor'){
+    const vendorLabel = $('vendorNameInput').value.trim();
+    const {main, dsp} = findVendorColumns(marginHeaderRow, vendorLabel);
+    if (!main){ toast('Не найдена колонка подрядчика «'+vendorLabel+'» в таблице.'); return; }
+
+    recon.sheetNames.forEach((sheetName, sheetIdx)=>{
+      const aoa = recon.sheets[sheetName];
+      if (!aoa || !aoa.length) return;
+      const headers = (aoa[0]||[]).map(h=>h===null?'':String(h));
+      const rows = aoa.slice(1);
+      const campaignIdx = findColIdx(headers, ['кампани']);
+      const impIdx = findColIdx(headers, ['показ']);
+      const priceIdx = findColIdx(headers, ['цена']);
+      const amountIdx = findAmountColumnIdx(headers);
+      const streamIdx = findColIdx(headers, ['поток']);
+      if (amountIdx===-1){ return; }
+
+      const moneyIdxs = headers.map((h,i)=>i).filter(i=>{
+        const hn = normalizeText(headers[i]); return hn.includes('сумма')||hn.includes('итого');
+      });
+      const cleaned = cleanBasic(rows, campaignIdx, impIdx, moneyIdxs);
+      const {mainRows, dspRows} = splitMainDspByOrder(cleaned, priceIdx, amountIdx);
+
+      const nameLower = sheetName.toLowerCase();
+      const isDspSheet = nameLower.includes('rtb') || nameLower.includes('dsp') || sheetIdx>0;
+
+      const mainAgg = collapseByKey(mainRows, campaignIdx, impIdx, amountIdx);
+      const targetCols = isDspSheet ? dsp : main;
+      const targetBlock = isDspSheet ? 'DSP' : 'Adfox';
+      if (targetCols){
+        mainAgg.forEach(g=> resolveCampaign(g.key, g.imp, g.amount, targetCols, vendorLabel, targetBlock, `${vendorLabel} ${targetBlock} (лист «${sheetName}»)`, newQueue));
+      }
+
+      const hasCamp = r => r[campaignIdx]!==null && r[campaignIdx]!==undefined && String(r[campaignIdx]).trim()!=='';
+      const dspWithCamp = dspRows.filter(hasCamp);
+      const dspNoCamp = dspRows.filter(r=>!hasCamp(r));
+
+      if (dsp){
+        const dspAgg = collapseByKey(dspWithCamp, campaignIdx, impIdx, amountIdx);
+        dspAgg.forEach(g=> resolveCampaign(g.key, g.imp, g.amount, dsp, vendorLabel, 'DSP', `${vendorLabel} DSP (лист «${sheetName}»)`, newQueue));
+
+        const tailAgg = collapseByKey(dspNoCamp, streamIdx!==-1?streamIdx:campaignIdx, impIdx, amountIdx);
+        tailAgg.forEach(g=>{
+          if (STATE.settings.EXCLUDE_DSP_TAIL_WITHOUT_CAMPAIGN){
+            newExcluded.push({vendorLabel, sheetName, stream:g.key, imp:g.imp, amount:g.amount});
+          } else {
+            newQueue.push({
+              id:'u_'+Math.random().toString(36).slice(2),
+              source:`${vendorLabel} DSP-хвост (лист «${sheetName}»)`,
+              campaignOrStream:`[Поток без кампании: ${g.key}]`, imp:g.imp, amount:g.amount,
+              cols:dsp, vendorLabel, block:'DSP', candidates:[], campaignKey:`__stream__${g.key}`,
+            });
+          }
+        });
+      }
+    });
+
+  } else if (recon.fileType === 'mts'){
+    const sheetName = recon.sheetNames[0];
+    const aoa = recon.sheets[sheetName];
+    const headers = (aoa[0]||[]).map(h=>h===null?'':String(h));
+    const rows = aoa.slice(1);
+    const campaignIdx = findColIdx(headers, ['кампани']);
+    const impIdx = findColIdx(headers, ['показ']);
+    const costIdx = findColIdx(headers, ['затрат']);
+    const cleaned = cleanBasic(rows, campaignIdx, impIdx, [costIdx]).filter(r=>r[campaignIdx]);
+    const agg = collapseByKey(cleaned, campaignIdx, impIdx, costIdx);
+    const {main} = findVendorColumns(marginHeaderRow, 'MTS ADS');
+    if (!main){ toast('Не найдена колонка МТС в таблице (искал «MTS ADS»).'); return; }
+    agg.forEach(g=> resolveCampaign(g.key, g.imp, g.amount, main, 'МТС', 'Adfox', 'MTS billing', newQueue));
+
+  } else if (recon.fileType === 'direct'){
+    const sheetName = recon.sheetNames[0];
+    const aoa = recon.sheets[sheetName];
+    const headers = (aoa[0]||[]).map(h=>h===null?'':String(h));
+    const rows = aoa.slice(1);
+    const campaignIdx = findColIdx(headers, ['кампани']);
+    const impIdx = findColIdx(headers, ['показ']);
+    const costIdx = findColIdx(headers, ['расход']);
+    const cleaned = cleanBasic(rows, campaignIdx, impIdx, [costIdx]).filter(r=>r[campaignIdx]);
+    const agg = collapseByKey(cleaned, campaignIdx, impIdx, costIdx);
+    const {main} = findVendorColumns(marginHeaderRow, 'Яндекс Директ');
+    if (!main){ toast('Не найдена колонка Яндекс.Директ в таблице.'); return; }
+    agg.forEach(g=> resolveCampaign(g.key, g.imp, g.amount, main, 'Яндекс Директ', 'Adfox', 'Direct billing', newQueue));
+
+  } else if (recon.fileType === 'dsp_billing'){
+    const sheetName = recon.sheetNames[0];
+    const aoa = recon.sheets[sheetName];
+    const headers = (aoa[0]||[]).map(h=>h===null?'':String(h));
+    const rows = aoa.slice(1);
+    const sspIdx = findColIdx(headers, ['ssp'], ['id']);
+    const campIdx = findColIdx(headers, ['campaign'], ['id']);
+    const impIdx = findColIdx(headers, ['impressions']);
+    const payoutIdx = findColIdx(headers, ['payout']);
+    const filtered = rows.filter(r=> r[sspIdx] && !isOlvCampaign(r[campIdx]) && !STATE.settings.SSP_IGNORE.includes(String(r[sspIdx])));
+    const byCol = {};
+    filtered.forEach(r=>{
+      const ssp = String(r[sspIdx]);
+      const marginCol = STATE.settings.SSP_TO_DSP_COLUMN[ssp];
+      if (!marginCol){ return; }
+      const key = marginCol+'||'+r[campIdx];
+      if (!byCol[key]) byCol[key] = {marginCol, campaign:r[campIdx], imp:0, amount:0};
+      byCol[key].imp += Number(r[impIdx])||0;
+      byCol[key].amount += Number(r[payoutIdx])||0;
+    });
+    Object.values(byCol).forEach(g=>{
+      if (Math.abs(g.imp)<1 && Math.abs(g.amount)<0.01) return;
+      const vendorBase = g.marginCol.replace(' DSP','').trim();
+      const {dsp} = findVendorColumns(marginHeaderRow, vendorBase);
+      if (!dsp){ return; }
+      resolveCampaign(g.campaign, g.imp, g.amount, dsp, vendorBase, 'DSP', 'Billing DSP', newQueue);
+    });
+  }
+
+  STATE.unresolved = STATE.unresolved.concat(newQueue);
+  STATE.excludedLog = STATE.excludedLog.concat(newExcluded);
+  renderReview();
+  goToStep(3);
+}
+$('btnProcessRecon').addEventListener('click', processReconFile);
+
+/* ============================================================================
+   ШАГ 3 — ПРОВЕРКА
+   ============================================================================ */
+function renderReview(){
+  const total = STATE.unresolved.length;
+  const wrap = $('reviewSections');
+
+  if (total === 0 && STATE.excludedLog.length === 0){
+    wrap.innerHTML = `<div class="empty-note">Пока нечего проверять — загрузите файл сверки на шаге 2.</div>`;
+    updateReviewProgress();
+    return;
+  }
+
+  let html = '';
+
+  if (total > 0){
+    html += `<div class="review-section">
+      <div class="review-section-head">
+        <h3>🟡 Требует подтверждения <span class="count">${total}</span></h3>
+      </div>
+      <div id="pendingList">`;
+    STATE.unresolved.forEach(item=>{
+      html += renderPendingItem(item);
+    });
+    html += `</div></div>`;
+  } else {
+    html += `<div class="review-section"><div class="empty-note" style="padding:18px;">🎉 Все совпадения подтверждены</div></div>`;
+  }
+
+  if (STATE.excludedLog.length){
+    const excludedTotal = STATE.excludedLog.reduce((s,e)=>s+e.amount,0);
+    html += `<div class="review-section">
+      <div class="review-section-head" id="excludedToggle">
+        <h3><span class="chev" id="excludedChev">›</span> ⚪ Исключено автоматически (нет названия кампании) <span class="count">${STATE.excludedLog.length} · ${fmtNum(excludedTotal,2)} ₽</span></h3>
+      </div>
+      <div class="card hidden" id="excludedBody">`;
+    STATE.excludedLog.forEach(e=>{
+      html += `<div class="excluded-row"><span class="er-name">${escapeHtml(e.vendorLabel)} · ${escapeHtml(e.stream)}</span><span class="er-sum">${fmtNum(e.amount,2)} ₽</span></div>`;
+    });
+    html += `</div></div>`;
+  }
+
+  wrap.innerHTML = html;
+
+  if (STATE.excludedLog.length){
+    $('excludedToggle').addEventListener('click', ()=>{
+      $('excludedBody').classList.toggle('hidden');
+      $('excludedChev').classList.toggle('is-open');
+    });
+  }
+
+  document.querySelectorAll('[data-confirm]').forEach(btn=>{
+    btn.addEventListener('click', ()=> confirmItem(btn.dataset.confirm, Number(btn.dataset.row)));
+  });
+  document.querySelectorAll('[data-skip]').forEach(btn=>{
+    btn.addEventListener('click', ()=> skipItem(btn.dataset.skip));
+  });
+  document.querySelectorAll('[data-manual]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = btn.dataset.manual;
+      const input = $('manual_'+id);
+      const name = input.value.trim();
+      const row = STATE.margin.projectIndex[name];
+      if (!row){ toast('Нет точного совпадения с названием проекта в таблице.'); return; }
+      confirmItem(id, row, name);
+    });
+  });
+
+  updateReviewProgress();
+}
+
+function renderPendingItem(item){
+  const candHtml = item.candidates.length ? item.candidates.map(c=>`
+    <div class="candidate" data-confirm="${item.id}" data-row="${c.row}">
+      <div class="conf"><div class="conf-track"><div class="conf-fill" style="width:${Math.round(c.score*100)}%"></div></div><div class="conf-num">${Math.round(c.score*100)}%</div></div>
+      <div class="cand-name">${escapeHtml(c.project)}</div>
+      ${c.monthConflict?'<span class="cand-warn">разные месяцы</span>':''}
+    </div>`).join('') : `<div style="font-size:12.5px;color:var(--ink-faint);">Похожих проектов не найдено.</div>`;
+
+  return `<div class="item" id="item_${item.id}">
+    <div class="item-top">
+      <div>
+        <div class="item-campaign">${escapeHtml(item.campaignOrStream)}</div>
+        <div class="item-meta">${escapeHtml(item.source)} · ${escapeHtml(item.block)}-колонка</div>
+      </div>
+      <div class="item-nums">${fmtNum(item.imp,0)} показов<br>${fmtNum(item.amount,2)} ₽</div>
+    </div>
+    <div class="candidates">${candHtml}</div>
+    <div class="manual-row">
+      <input type="text" id="manual_${item.id}" placeholder="Или впишите точное название проекта из таблицы…">
+      <button class="btn btn-ghost btn-sm" data-manual="${item.id}">Назначить</button>
+    </div>
+    <div class="item-actions">
+      <button class="btn btn-ghost btn-sm" data-skip="${item.id}">Пропустить</button>
+    </div>
+  </div>`;
+}
+
+function confirmItem(id, row, manualName){
+  const idx = STATE.unresolved.findIndex(u=>u.id===id);
+  if (idx===-1) return;
+  const item = STATE.unresolved[idx];
+  const projectName = manualName || Object.keys(STATE.margin.projectIndex).find(p=>STATE.margin.projectIndex[p]===row);
+  if (!item.campaignKey.startsWith('__stream__')) STATE.cache[item.campaignKey] = projectName;
+  addChange(row, projectName, item.vendorLabel, item.block, item.cols, item.imp, item.amount, item.campaignOrStream);
+
+  const el = $('item_'+id);
+  if (el){
+    el.classList.add('is-confirmed','is-snap');
+    setTimeout(()=>{
+      STATE.unresolved.splice(idx,1);
+      renderReview();
+    }, 260);
+  } else {
+    STATE.unresolved.splice(idx,1);
+    renderReview();
+  }
+}
+function skipItem(id){
+  STATE.unresolved = STATE.unresolved.filter(u=>u.id!==id);
+  renderReview();
+}
+function updateReviewProgress(){
+  const remaining = STATE.unresolved.length;
+  const done = STATE.changes.length; // грубая метрика прогресса
+  const total = remaining + done;
+  $('reviewProgressText').textContent = remaining===0 ? `Готово — ${done} строк сопоставлено` : `${remaining} осталось подтвердить`;
+  $('reviewProgressFill').style.width = total? `${Math.round(100*(total-remaining)/total)}%` : '0%';
+  $('btnToStep4').disabled = false; // можно перейти к итогам, даже частично (skip допустим)
+}
+$('btnToStep4').addEventListener('click', ()=>{ renderSummary(); goToStep(4); });
+
+/* ============================================================================
+   ШАГ 4 — ИТОГИ
+   ============================================================================ */
+function renderSummary(){
+  const byVendor = {};
+  STATE.changes.forEach(c=>{
+    const key = c.vendorLabel+'||'+c.block;
+    if (!byVendor[key]) byVendor[key] = {vendorLabel:c.vendorLabel, block:c.block, imp:0, amount:0, rows:0};
+    byVendor[key].imp += c.imp; byVendor[key].amount += c.amount; byVendor[key].rows += 1;
+  });
+  const tiles = Object.values(byVendor).map(v=>`
+    <div class="summary-tile">
+      <div class="st-label">${escapeHtml(v.vendorLabel)} · ${escapeHtml(v.block)}</div>
+      <div class="st-value">${fmtNum(v.amount,2)} ₽</div>
+      <div class="st-sub">${fmtNum(v.imp/1000,3)} тыс. показов · ${v.rows} строк</div>
+    </div>`).join('');
+  $('summaryByVendor').innerHTML = tiles ? `<div class="summary-grid">${tiles}</div>` : `<div class="empty-note">Пока нет подтверждённых изменений.</div>`;
+
+  $('changeCount').textContent = STATE.changes.length;
+  if (!STATE.changes.length){
+    $('changesTableWrap').innerHTML = `<div class="empty-note">Нет строк для выгрузки.</div>`;
+    return;
+  }
+  let rows = STATE.changes.map(c=>{
+    const unit = c.imp>0 ? c.amount/(c.imp/1000) : 0;
+    return `<tr>
+      <td>${escapeHtml(c.project)}</td>
+      <td>${escapeHtml(c.vendorLabel)}</td>
+      <td>${escapeHtml(c.block)}</td>
+      <td class="mono">${colLetter(c.qtyCol)}${c.row}</td>
+      <td class="mono">${colLetter(c.amountCol)}${c.row}</td>
+      <td class="num">${fmtNum(c.imp/1000,3)}</td>
+      <td class="num">${fmtNum(c.amount,2)}</td>
+      <td class="num">${fmtNum(unit,2)}</td>
+    </tr>`;
+  }).join('');
+  $('changesTableWrap').innerHTML = `<table class="data-table">
+    <thead><tr><th>Проект</th><th>Подрядчик</th><th>Блок</th><th>Ячейка показов</th><th>Ячейка суммы</th><th>Показы, тыс.</th><th>Сумма, ₽</th><th>Цена/ед.</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+$('btnDownloadXlsx').addEventListener('click', ()=>{
+  if (!STATE.changes.length){ toast('Нет изменений для выгрузки.'); return; }
+  const header = ['Строка','Проект','Подрядчик','Блок','Ячейка показов','Ячейка суммы','Показы (тыс.)','Сумма без НДС','Цена за ед.'];
+  const data = [header].concat(STATE.changes.map(c=>{
+    const qty = c.imp/1000, amt = Math.round(c.amount*100)/100;
+    const unit = qty>0 ? Math.round((amt/qty)*100)/100 : 0;
+    return [c.row, c.project, c.vendorLabel, c.block, colLetter(c.qtyCol)+c.row, colLetter(c.amountCol)+c.row, Math.round(qty*1000)/1000, amt, unit];
+  }));
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [{wch:6},{wch:42},{wch:20},{wch:8},{wch:10},{wch:10},{wch:13},{wch:14},{wch:11}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Изменения');
+  const ts = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `Сверка_изменения_${ts}.xlsx`);
+  toast('Файл скачан');
+});
+
+/* ============================================================================
+   КЭШ СОПОСТАВЛЕНИЙ — ЭКСПОРТ / ИМПОРТ (без localStorage - см. примечание в README)
+   ============================================================================ */
+function updateCacheCounter(){
+  $('cacheCount').textContent = `Подсказки: ${Object.keys(STATE.cache).length}`;
+}
+$('btnExportCache').addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify(STATE.cache, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'mapping_cache.json';
+  a.click();
+});
+$('btnImportCache').addEventListener('click', ()=> $('cacheFileInput').click());
+$('cacheFileInput').addEventListener('change', e=>{
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    try{
+      const obj = JSON.parse(ev.target.result);
+      Object.assign(STATE.cache, obj);
+      updateCacheCounter();
+      toast('Подсказки импортированы: '+Object.keys(obj).length);
+    }catch(err){ toast('Не удалось прочитать файл подсказок.'); }
+  };
+  reader.readAsText(file);
+});
+setInterval(updateCacheCounter, 500);
+
+goToStep(1);
+</script>
+</body>
+</html>
