@@ -1242,12 +1242,17 @@ function addChange(row, projectName, vendorLabel, block, cols, imp, amount, sour
   // ищем уже существующую запись для (row, amountCol) - суммируем, как и в Python-версии
   let existing = STATE.changes.find(c=>c.row===row && c.amountCol===cols.amountCol);
   if (!existing){
-    existing = {row, project:projectName, vendorLabel, block, unitCol:cols.unitCol, qtyCol:cols.qtyCol, amountCol:cols.amountCol, imp:0, amount:0, sources:[]};
+    existing = {row, project:projectName, vendorLabel, block, unitCol:cols.unitCol, qtyCol:cols.qtyCol, amountCol:cols.amountCol, imp:0, amount:0, sources:[], sourceDetails:[]};
     STATE.changes.push(existing);
   }
   existing.imp += imp;
   existing.amount += amount;
   existing.sources.push(sourceCampaign);
+  // sourceDetails - разбивка по каждой исходной кампании из файла, попавшей
+  // в эту строку. Нужна для "двойной проверки": если сюда попали ДВЕ РАЗНЫЕ
+  // кампании, это повод проверить руками, а не ошибка сама по себе (см.
+  // renderReview - секция "проверьте вручную").
+  existing.sourceDetails.push({text: sourceCampaign, imp, amount});
 }
 
 function resolveCampaign(campaign, imp, amount, cols, vendorLabel, block, source, queueList){
@@ -1436,6 +1441,39 @@ function renderReview(){
 
   let html = '';
 
+  // ---------- ДВОЙНАЯ ПРОВЕРКА: несколько РАЗНЫХ кампаний легли в одну строку ----------
+  // Само по себе это не всегда ошибка (иногда РК законно переименовывают в
+  // середине месяца), но чаще сигнализирует о неверном сопоставлении (в т.ч.
+  // из старого кэша подсказок) - стоит проверить руками.
+  const collisions = STATE.changes.filter(c => new Set(c.sourceDetails.map(s=>s.text)).size > 1);
+  if (collisions.length){
+    html += `<div class="review-section">
+      <div class="review-section-head">
+        <h3>🔴 Проверьте вручную — разные кампании попали в одну строку <span class="count">${collisions.length}</span></h3>
+      </div>`;
+    collisions.forEach(c=>{
+      const uniqueTexts = [...new Set(c.sourceDetails.map(s=>s.text))];
+      html += `<div class="item" style="border-color:var(--red-line); background:var(--red-bg);">
+        <div class="item-top">
+          <div>
+            <div class="item-campaign">${escapeHtml(c.project)} <span class="badge badge-red">строка ${c.row} · ${escapeHtml(c.block)}</span></div>
+            <div class="item-meta">${uniqueTexts.length} разных названия кампании из файла сошлись на этой строке — возможно, ошибка сопоставления (в т.ч. старая подсказка в кэше).</div>
+          </div>
+          <div class="item-nums">Итого: ${fmtNum(c.imp,0)} показов<br>${fmtNum(c.amount,2)} ₽</div>
+        </div>
+        <table class="data-table mt-8"><thead><tr><th>Кампания из файла</th><th>Показы</th><th>Сумма</th><th></th></tr></thead><tbody>
+        ${c.sourceDetails.map((s,i)=>`<tr>
+          <td>${escapeHtml(s.text)}</td>
+          <td class="num">${fmtNum(s.imp,0)}</td>
+          <td class="num">${fmtNum(s.amount,2)} ₽</td>
+          <td><button class="btn btn-ghost btn-sm" data-uncollide="${c.row}|${c.amountCol}|${i}">Разобрать заново</button></td>
+        </tr>`).join('')}
+        </tbody></table>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
   if (total > 0){
     html += `<div class="review-section">
       <div class="review-section-head">
@@ -1472,6 +1510,12 @@ function renderReview(){
     });
   }
 
+  document.querySelectorAll('[data-uncollide]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const [row, amountCol, idx] = btn.dataset.uncollide.split('|');
+      uncollide(Number(row), Number(amountCol), Number(idx));
+    });
+  });
   document.querySelectorAll('[data-confirm]').forEach(btn=>{
     btn.addEventListener('click', ()=> confirmItem(btn.dataset.confirm, Number(btn.dataset.row)));
   });
@@ -1543,6 +1587,40 @@ function skipItem(id){
   STATE.unresolved = STATE.unresolved.filter(u=>u.id!==id);
   renderReview();
 }
+
+function uncollide(row, amountCol, sourceIdx){
+  const change = STATE.changes.find(c=>c.row===row && c.amountCol===amountCol);
+  if (!change) return;
+  const detail = change.sourceDetails[sourceIdx];
+  if (!detail) return;
+
+  change.sourceDetails.splice(sourceIdx, 1);
+  change.sources.splice(sourceIdx, 1);
+  change.imp -= detail.imp;
+  change.amount -= detail.amount;
+
+  // сбрасываем кэш-подсказку для этой кампании, иначе при повторном
+  // сопоставлении она снова автоматически уедет туда же
+  delete STATE.cache[detail.text];
+
+  if (change.sourceDetails.length === 0){
+    STATE.changes = STATE.changes.filter(c => c !== change);
+  }
+
+  STATE.unresolved.push({
+    id: 'u_'+Math.random().toString(36).slice(2),
+    source: `Переразбор: ${change.vendorLabel} ${change.block}`,
+    campaignOrStream: detail.text,
+    imp: detail.imp, amount: detail.amount,
+    cols: {unitCol: change.unitCol, qtyCol: change.qtyCol, amountCol: change.amountCol},
+    vendorLabel: change.vendorLabel, block: change.block,
+    candidates: proposeMatches(detail.text, STATE.margin.projectIndex),
+    campaignKey: detail.text,
+  });
+
+  toast('Кампания снята со строки и возвращена в очередь на подтверждение.');
+  renderReview();
+}
 function updateReviewProgress(){
   const remaining = STATE.unresolved.length;
   const done = STATE.changes.length; // грубая метрика прогресса
@@ -1557,6 +1635,22 @@ $('btnToStep4').addEventListener('click', ()=>{ renderSummary(); goToStep(4); })
    ШАГ 4 — ИТОГИ
    ============================================================================ */
 function renderSummary(){
+  const collisions = STATE.changes.filter(c => new Set(c.sourceDetails.map(s=>s.text)).size > 1);
+  const bannerEl = document.getElementById('summaryCollisionBanner');
+  if (bannerEl) bannerEl.remove();
+  if (collisions.length){
+    const banner = document.createElement('div');
+    banner.id = 'summaryCollisionBanner';
+    banner.className = 'card';
+    banner.style.cssText = 'border-color:var(--red-line); background:var(--red-bg); cursor:pointer;';
+    banner.innerHTML = `<div style="display:flex; align-items:center; gap:10px;">
+      <span class="badge badge-red">${collisions.length}</span>
+      <div><b>Есть строки, где сошлись разные кампании</b> — стоит проверить перед записью в таблицу. Нажмите, чтобы вернуться на шаг проверки.</div>
+    </div>`;
+    banner.addEventListener('click', ()=>{ renderReview(); goToStep(3); });
+    $('summaryByVendor').parentElement.parentElement.insertBefore(banner, $('summaryByVendor').parentElement);
+  }
+
   const byVendor = {};
   STATE.changes.forEach(c=>{
     const key = c.vendorLabel+'||'+c.block;
