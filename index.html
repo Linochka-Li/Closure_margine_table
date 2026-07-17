@@ -1591,22 +1591,33 @@ $('btnWriteGoogle').addEventListener('click', async ()=>{
   $('writeGoogleStatus').innerHTML = `<span class="badge badge-violet">Отправляем ${STATE.changes.length} строк в Google Таблицу…</span>`;
   try{
     const sheetName = STATE.margin.sheetName.replace(/'/g,"''");
-    const data = [];
+    const numericData = [];   // показы и сумма - ВСЕГДА как чистые числа (RAW)
+    const formulaData = [];   // цена за единицу - формула (нужен USER_ENTERED, чтобы вычислялась)
+
+    // ВАЖНО: числа и формулы пишутся ДВУМЯ отдельными запросами с разным
+    // valueInputOption. У Sheets API он один на весь batchUpdate, и если
+    // писать числа через USER_ENTERED, они интерпретируются по локали
+    // таблицы (например, в русской локали точка - не десятичный разделитель)
+    // и могут осесть как ТЕКСТ, а не число - тогда формула деления в самой
+    // таблице маржинальности ломается. RAW исключает эту двусмысленность.
     STATE.changes.forEach(c=>{
       const qty = Math.round((c.imp/1000)*1000)/1000;
       const amt = Math.round(c.amount*100)/100;
       const qtyA1 = `'${sheetName}'!${colLetter(c.qtyCol)}${c.row}`;
       const amtA1 = `'${sheetName}'!${colLetter(c.amountCol)}${c.row}`;
       const unitA1 = `'${sheetName}'!${colLetter(c.unitCol)}${c.row}`;
-      data.push({range: qtyA1, values:[[qty]]});
-      data.push({range: amtA1, values:[[amt]]});
-      // цена за единицу пишется ЖИВОЙ ФОРМУЛОЙ (=Сумма/Показы), а не числом -
-      // защищена IFERROR, чтобы никогда не показывать ошибку при показах=0
-      data.push({range: unitA1, values:[[`=IFERROR(${colLetter(c.amountCol)}${c.row}/${colLetter(c.qtyCol)}${c.row},0)`]]});
+      numericData.push({range: qtyA1, values:[[qty]]});
+      numericData.push({range: amtA1, values:[[amt]]});
+      formulaData.push({range: unitA1, values:[[`=IFERROR(${colLetter(c.amountCol)}${c.row}/${colLetter(c.qtyCol)}${c.row},0)`]]});
     });
+
     await googleApiFetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${STATE.margin.spreadsheetId}/values:batchUpdate`,
-      {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({valueInputOption:'USER_ENTERED', data})}
+      {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({valueInputOption:'RAW', data:numericData})}
+    );
+    await googleApiFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${STATE.margin.spreadsheetId}/values:batchUpdate`,
+      {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({valueInputOption:'USER_ENTERED', data:formulaData})}
     );
     $('writeGoogleStatus').innerHTML = `<span class="badge badge-green">Записано ${STATE.changes.length} строк в «${escapeHtml(STATE.margin.sheetName)}»</span>`;
     toast('Готово — данные записаны в Google Таблицу');
