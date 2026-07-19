@@ -723,6 +723,7 @@ const STATE = {
   unresolved: [],        // очередь на подтверждение (across all files this session)
   excludedLog: [],       // авто-исключённые DSP-без-кампании (информационно)
   changes: [],            // [{row, project, vendorLabel, block, qtyCell, amountCell, unitCell, imp, amount, source}]
+  processedFiles: new Set(), // отпечатки уже обработанных файлов сверки (защита от случайного повторного счёта)
   settings: {
     AUTO_MATCH_THRESHOLD: 0.55,
     AMBIGUOUS_MARGIN: 0.08,
@@ -1111,8 +1112,17 @@ setupDropzone('dzRecon','fileRecon', async (file)=>{
     });
     const firstSheetHeaders = (sheets[wb.SheetNames[0]][0] || []).map(h=>h===null?'':String(h));
     const fileType = detectFileType(firstSheetHeaders);
+    // Отпечаток файла - имя+размер+дата изменения. Не идеально надёжно (если
+    // кто-то пересохранит файл под тем же именем без единого изменения байтов,
+    // отпечаток совпадёт настоящим дублем и это правильно), но ловит
+    // ГЛАВНЫЙ практический случай - повторную обработку того же файла.
+    const fingerprint = `${file.name}|${file.size}|${file.lastModified}`;
 
-    STATE.currentRecon = {fileName:file.name, fileType, sheets, sheetNames: wb.SheetNames};
+    STATE.currentRecon = {fileName:file.name, fileType, sheets, sheetNames: wb.SheetNames, fingerprint};
+
+    if (STATE.processedFiles.has(fingerprint)){
+      toast('⚠ Похоже, этот файл уже обрабатывался в этой сессии.');
+    }
 
     $('reconTypeResult').classList.remove('hidden');
     if (!fileType){
@@ -1122,7 +1132,9 @@ setupDropzone('dzRecon','fileRecon', async (file)=>{
       return;
     }
     const typeLabels = {vendor:'Сверка подрядчика (Adfox + DSP)', dsp_billing:'Биллинг DSP (по SSP)', mts:'Биллинг МТС', direct:'Биллинг Яндекс.Директ'};
-    $('reconTypeResult').innerHTML = `<span class="badge badge-green">${typeLabels[fileType]}</span> <span style="font-size:12.5px;color:var(--ink-soft)">Листов в файле: ${wb.SheetNames.length}</span>`;
+    const alreadyBadge = STATE.processedFiles.has(fingerprint)
+      ? ` <span class="badge badge-amber">⚠ уже обработан в этой сессии</span>` : '';
+    $('reconTypeResult').innerHTML = `<span class="badge badge-green">${typeLabels[fileType]}</span> <span style="font-size:12.5px;color:var(--ink-soft)">Листов в файле: ${wb.SheetNames.length}</span>${alreadyBadge}`;
 
     if (fileType==='vendor'){
       $('vendorNameBlock').classList.remove('hidden');
@@ -1300,6 +1312,31 @@ async function processReconFile(){
   const recon = STATE.currentRecon;
   if (!recon || !STATE.margin) return;
 
+  // Защита от повторной обработки: если этот же файл (по имени, размеру и
+  // дате изменения) уже был обработан в этой сессии, деньги посчитаются ещё
+  // раз ПОВЕРХ уже посчитанных - предупреждаем и просим подтвердить, вместо
+  // того чтобы тихо задваивать суммы.
+  if (STATE.processedFiles.has(recon.fingerprint)){
+    const ok = confirm(
+      `Файл «${recon.fileName}» уже был обработан в этой сессии.\n\n` +
+      `Обработать его ещё раз? Если это тот же файл — суммы задвоятся. ` +
+      `Продолжайте, только если это ДЕЙСТВИТЕЛЬНО другой файл с тем же названием.`
+    );
+    if (!ok) return;
+  }
+
+  $('btnProcessRecon').disabled = true;
+  $('btnProcessRecon').textContent = 'Обрабатываем…';
+
+  try{
+    await processReconFileInner(recon);
+  } finally {
+    $('btnProcessRecon').disabled = false;
+    $('btnProcessRecon').textContent = 'Обработать файл →';
+  }
+}
+
+async function processReconFileInner(recon){
   const headerRowIdx = Number($('cfgHeaderRow').value)-1;
   const marginHeaderRow = STATE.margin.aoa[headerRowIdx] || [];
   const newQueue = [];
@@ -1421,6 +1458,7 @@ async function processReconFile(){
 
   STATE.unresolved = STATE.unresolved.concat(newQueue);
   STATE.excludedLog = STATE.excludedLog.concat(newExcluded);
+  STATE.processedFiles.add(recon.fingerprint);
   renderReview();
   goToStep(3);
 }
